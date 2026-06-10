@@ -202,6 +202,9 @@ public final class G2LibService implements G2Service {
     /** Patch-State des gewählten Slots. Nur auf dem g2lib-Thread bzw. via invoke aufrufen. */
     private Map<String, Object> patchStateOf(Performance perf) {
         Patch patch = perf.getSelectedPatch();
+        // Aktive Variation steht in der Patch-Description (kommt beim Laden vom Gerät) —
+        // nicht unseren lokalen Stand nehmen, sonst zeigt das Web nach Patch-Load falsch an.
+        variation = currentVariationOf(patch);
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("type", "patchState");
         out.put("connected", connected);
@@ -259,6 +262,15 @@ public final class G2LibService implements G2Service {
         out.put("color", umd.color().get());
         out.put("params", params);
         return out;
+    }
+
+    private int currentVariationOf(Patch patch) {
+        try {
+            Integer v = patch.getPatchSettings().variation().get();
+            return v == null ? variation : v;
+        } catch (RuntimeException e) {
+            return variation;
+        }
     }
 
     private static String cableColor(int code) {
