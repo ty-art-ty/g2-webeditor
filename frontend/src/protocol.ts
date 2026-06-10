@@ -11,8 +11,15 @@ export interface Cable {
   area: Area;
   from: { module: number; conn: number };
   to: { module: number; conn: number };
+  /** true: from ist ein Output; false: In-zu-In-Kabel. to ist immer ein Input. */
+  fromOutput: boolean;
   color: string;
 }
+
+// Statisch ausgeliefert: /module-defs.json (generiert aus g2fx, scripts/gen-module-defs.py)
+export interface ConnDef { x: number; y: number; type: 'audio' | 'control' | 'logic'; }
+export interface ModuleDef { ix: number; height: number; inputs: ConnDef[]; outputs: ConnDef[]; }
+export type ModuleDefs = Record<string, ModuleDef>;
 
 export interface PatchState {
   type: 'patchState'; connected: boolean;

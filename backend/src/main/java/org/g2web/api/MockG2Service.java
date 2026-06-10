@@ -31,8 +31,10 @@ public final class MockG2Service implements G2Service {
                            Map.of("id", 0, "name", "Freq", "value", params.getOrDefault("2:0", 75), "max", 127),
                            Map.of("id", 1, "name", "Res",  "value", params.getOrDefault("2:1", 20), "max", 127)))),
             "cables", List.of(
-                Map.of("from", Map.of("module", 1, "conn", 0),
-                       "to",   Map.of("module", 2, "conn", 0), "color", "red")));
+                Map.of("area", "va",
+                       "from", Map.of("module", 1, "conn", 0),
+                       "to",   Map.of("module", 2, "conn", 0),
+                       "fromOutput", true, "color", "red")));
     }
 
     @Override

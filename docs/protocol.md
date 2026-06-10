@@ -22,7 +22,11 @@ TypeScript-Spiegel: `frontend/src/protocol.ts` — beide synchron halten.
                  "row": 0, "col": 0, "color": 0,
                  "params": [ { "id": 0, "name": "Freq Coarse", "value": 64, "min": 0, "max": 127 } ] } ],
   "cables":  [ { "area": "va", "from": {"module":1,"conn":0},
-                 "to": {"module":2,"conn":0}, "color": "red" } ] }
+                 "to": {"module":2,"conn":0}, "fromOutput": true, "color": "red" } ] }
+// fromOutput=true: from-conn ist ein Output; false: In-zu-In-Kabel.
+// to ist immer ein Input. conn indiziert die outputs- bzw. inputs-Liste
+// des Modultyps (frontend/public/module-defs.json, generiert via
+// scripts/gen-module-defs.py aus g2fx).
 
 // Einzelne Param-Änderung (auch von anderen Clients oder vom G2-Panel selbst)
 { "type": "paramChanged", "slot": "A", "area": "va", "module": 1, "param": 0,

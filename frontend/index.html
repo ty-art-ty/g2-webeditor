@@ -30,7 +30,7 @@
     }
     #variations button.active { background: var(--accent); color: #222; border-color: var(--accent); }
 
-    main { display: grid; grid-template-columns: 16rem 1fr; gap: 0; min-height: calc(100vh - 3.2rem); }
+    main { display: grid; grid-template-columns: 16rem 1fr 19rem; gap: 0; min-height: calc(100vh - 3.2rem); }
 
     #banks {
       border-right: 1px solid var(--border); padding: .8rem; overflow-y: auto;
@@ -46,13 +46,32 @@
     #banks li:hover { background: var(--border); }
     #banks ul { padding-left: .6rem; margin: .3rem 0; }
 
-    #patch { padding: 1rem; }
-    .area-title { font-size: .8rem; text-transform: uppercase; color: var(--dim); margin: 1rem 0 .5rem; }
-    .modules { display: grid; grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr)); gap: .6rem; }
-    .module { border: 1px solid var(--border); border-radius: 6px; padding: .6rem .8rem; background: var(--panel); }
-    .module h3 { margin: 0 0 .45rem; font-size: .9rem; display: flex; justify-content: space-between; }
-    .module h3 .type { color: var(--dim); font-weight: normal; font-size: .8rem; }
-    .param { display: grid; grid-template-columns: 7.5rem 1fr 2.6rem; gap: .5rem; align-items: center; font-size: .8rem; }
+    #patch { padding: 1rem; overflow-x: auto; }
+    .area-title {
+      font-size: .8rem; text-transform: uppercase; color: var(--dim); margin: 1rem 0 .5rem;
+      display: flex; align-items: center; gap: .6rem;
+    }
+    .area-title .zoom button {
+      width: 1.5rem; height: 1.5rem; border: 1px solid var(--border); border-radius: 3px;
+      background: none; color: var(--text); cursor: pointer;
+    }
+    svg.area { display: block; background: #16171b; border: 1px solid var(--border); border-radius: 4px; }
+    svg.area g.mod { cursor: pointer; }
+    svg.area g.mod rect.body { stroke: #16171b; stroke-width: 1; }
+    svg.area g.mod.selected rect.body { stroke: var(--accent); stroke-width: 2; }
+    svg.area text { font-family: system-ui, sans-serif; pointer-events: none; user-select: none; }
+
+    #params {
+      border-left: 1px solid var(--border); padding: .8rem; overflow-y: auto;
+      max-height: calc(100vh - 3.2rem); position: sticky; top: 3.2rem;
+    }
+    #params h2 { font-size: .8rem; text-transform: uppercase; color: var(--dim); margin: .2rem 0 .6rem; }
+    #params .module { border: 1px solid var(--border); border-radius: 6px; padding: .6rem .8rem; background: var(--panel); }
+    #params .module h3 { margin: 0 0 .45rem; font-size: .9rem; display: flex; justify-content: space-between; gap: .4rem; align-items: center; }
+    #params .module h3 .type { color: var(--dim); font-weight: normal; font-size: .8rem; }
+    #params .module h3 img { image-rendering: pixelated; }
+    #params .hint { color: var(--dim); font-size: .85rem; }
+    .param { display: grid; grid-template-columns: 6.5rem 1fr 2.6rem; gap: .5rem; align-items: center; font-size: .8rem; }
     .param label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--dim); }
     .param span { text-align: right; font-variant-numeric: tabular-nums; }
     input[type=range] { width: 100%; accent-color: var(--accent); }
@@ -68,6 +87,7 @@
   <main>
     <nav id="banks"><h2>Patches</h2><div id="banklist">lade…</div></nav>
     <section id="patch"></section>
+    <aside id="params"><h2>Modul</h2><div id="paramsbody" class="hint">Modul anklicken</div></aside>
   </main>
   <script type="module" src="/src/main.ts"></script>
 </body>

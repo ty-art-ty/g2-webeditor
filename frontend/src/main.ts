@@ -1,6 +1,7 @@
 import type {
-  Area, Bank, ClientMessage, Module, PatchState, ServerMessage,
+  Area, Bank, ClientMessage, Module, ModuleDefs, PatchState, ServerMessage,
 } from './protocol';
+import { type AreaView, moduleIcon, renderArea } from './graph';
 
 const $ = (id: string) => document.getElementById(id)!;
 const connEl = $('conn');
@@ -9,9 +10,15 @@ const patchNameEl = $('patchname');
 const perfInfoEl = $('perfinfo');
 const variationsEl = $('variations');
 const bankListEl = $('banklist');
+const paramsBodyEl = $('paramsbody');
 
 const VARIATION_COUNT = 8;
 let currentVariation = 0;
+let currentPatch: PatchState | null = null;
+let moduleDefs: ModuleDefs = {};
+let selected: { area: Area; id: number } | null = null;
+let zoom = 1;
+const areaViews = new Map<Area, AreaView>();
 let ws: WebSocket;
 
 // ---------------------------------------------------------------- WebSocket
@@ -42,6 +49,10 @@ function handle(msg: ServerMessage) {
       break;
     case 'paramChanged': {
       if (msg.variation !== currentVariation) break;
+      // State nachziehen, damit Re-Renders (Auswahl/Zoom) aktuelle Werte zeigen
+      const mod = findModule(msg.area, msg.module);
+      const p = mod?.params.find((x) => x.id === msg.param);
+      if (p) p.value = msg.value;
       const input = document.querySelector<HTMLInputElement>(
         `input[data-area="${msg.area}"][data-module="${msg.module}"][data-param="${msg.param}"]`);
       if (input && document.activeElement !== input) {
@@ -61,9 +72,13 @@ function handle(msg: ServerMessage) {
   }
 }
 
+const findModule = (area: Area, id: number): Module | undefined =>
+  currentPatch?.modules.find((m) => m.area === area && m.id === id);
+
 // ---------------------------------------------------------------- Rendering
 
 function renderPatch(p: PatchState) {
+  currentPatch = p;
   document.title = `G2: ${p.name}`;
   patchNameEl.textContent = p.name || '—';
   perfInfoEl.textContent = `${p.perf} · Slot ${p.slot}`;
@@ -71,27 +86,59 @@ function renderPatch(p: PatchState) {
   renderVariations();
 
   patchEl.innerHTML = '';
+  areaViews.clear();
   for (const area of ['va', 'fx'] as Area[]) {
     const mods = p.modules.filter((m) => m.area === area);
     if (!mods.length) continue;
+
     const title = document.createElement('div');
     title.className = 'area-title';
-    title.textContent = area === 'va' ? 'Voice Area' : 'FX Area';
+    title.innerHTML = `<span>${area === 'va' ? 'Voice Area' : 'FX Area'}</span>`;
+    title.appendChild(zoomControls());
     patchEl.appendChild(title);
-    const grid = document.createElement('div');
-    grid.className = 'modules';
-    mods.sort((a, b) => a.col - b.col || a.row - b.row)
-        .forEach((m) => grid.appendChild(renderModule(m)));
-    patchEl.appendChild(grid);
+
+    const view = renderArea(area, mods, p.cables ?? [], moduleDefs, (m) => selectModule(m));
+    areaViews.set(area, view);
+    patchEl.appendChild(view.svg);
   }
+  applyZoom();
+
+  // Auswahl wiederherstellen (z.B. nach Variationswechsel-Refresh) bzw. Panel
+  // leeren — sonst zeigt es nach Patch-Wechsel noch ein Modul des alten Patches.
+  const m = selected && findModule(selected.area, selected.id);
+  if (m) selectModule(m); else clearSelection();
 }
 
-function renderModule(m: Module): HTMLElement {
+function selectModule(m: Module) {
+  selected = { area: m.area, id: m.id };
+  areaViews.forEach((v, area) => v.select(area === m.area ? m.id : null));
+  renderParamPanel(m);
+}
+
+function clearSelection() {
+  selected = null;
+  areaViews.forEach((v) => v.select(null));
+  paramsBodyEl.className = 'hint';
+  paramsBodyEl.textContent = 'Modul anklicken';
+}
+
+function renderParamPanel(m: Module) {
+  paramsBodyEl.className = '';
+  paramsBodyEl.innerHTML = '';
   const div = document.createElement('div');
   div.className = 'module';
+  const icon = moduleIcon(moduleDefs, m.typeName);
   const h = document.createElement('h3');
-  h.innerHTML = `<span>${esc(m.name) || '#' + m.id}</span><span class="type">${esc(m.typeName)} #${m.id}</span>`;
+  h.innerHTML = `${icon ? `<img src="${icon}" width="22" height="22" alt="">` : ''}
+    <span>${esc(m.name) || '#' + m.id}</span>
+    <span class="type">${esc(m.typeName)} #${m.id}</span>`;
   div.appendChild(h);
+  if (!m.params.length) {
+    const p = document.createElement('div');
+    p.className = 'hint';
+    p.textContent = 'keine Parameter';
+    div.appendChild(p);
+  }
   for (const param of m.params) {
     const row = document.createElement('div');
     row.className = 'param';
@@ -102,12 +149,36 @@ function renderModule(m: Module): HTMLElement {
     const input = row.querySelector('input')!;
     input.oninput = () => {
       row.querySelector('span')!.textContent = input.value;
+      param.value = Number(input.value);
       send({ type: 'setParam', area: m.area, module: m.id, param: param.id,
              value: Number(input.value), variation: currentVariation });
     };
     div.appendChild(row);
   }
+  paramsBodyEl.appendChild(div);
+}
+
+function zoomControls(): HTMLElement {
+  const div = document.createElement('div');
+  div.className = 'zoom';
+  for (const [txt, d] of [['−', -0.25], ['+', 0.25]] as const) {
+    const b = document.createElement('button');
+    b.textContent = txt;
+    b.onclick = () => {
+      zoom = Math.min(2, Math.max(0.5, zoom + d));
+      applyZoom();
+    };
+    div.appendChild(b);
+  }
   return div;
+}
+
+function applyZoom() {
+  areaViews.forEach((v) => {
+    const [, , w, h] = v.svg.getAttribute('viewBox')!.split(' ').map(Number);
+    v.svg.setAttribute('width', String(w * zoom));
+    v.svg.setAttribute('height', String(h * zoom));
+  });
 }
 
 function renderVariations() {
@@ -165,6 +236,7 @@ async function loadBanks() {
 }
 
 async function loadPatch(bank: number, slot: number) {
+  selected = null; // neues Patch, alte Auswahl ungültig
   await fetch('/api/patch/load', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -178,5 +250,14 @@ function esc(s: string): string {
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 }
 
-connect();
-loadBanks();
+async function init() {
+  try {
+    moduleDefs = await (await fetch('/module-defs.json')).json();
+  } catch {
+    console.warn('module-defs.json nicht ladbar — Module ohne Geometrie');
+  }
+  connect();
+  loadBanks();
+}
+
+init();

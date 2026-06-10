@@ -226,6 +226,9 @@ public final class G2LibService implements G2Service {
                         "area", areaName,
                         "from", Map.of("module", c.getSrcModule(), "conn", c.getSrcConn()),
                         "to", Map.of("module", c.getDestModule(), "conn", c.getDestConn()),
+                        // direction=true: from ist ein Output; false: In-zu-In-Kabel
+                        // (to ist immer ein Input). Wie g2gui AreaPane: getDirection() ? Out : In.
+                        "fromOutput", c.getDirection(),
                         "color", cableColor(c.getColor())));
             }
         }

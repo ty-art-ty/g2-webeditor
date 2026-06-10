@@ -1,0 +1,138 @@
+// Grafische Patch-Ansicht: Module + Kabel als SVG, Maße wie g2fx/Original-Editor
+// (Grid 255×15 px, Connector-Positionen aus module-defs.json).
+
+import type { Area, Cable, Module, ModuleDef, ModuleDefs } from './protocol';
+
+export const GRID_X = 255;
+export const GRID_Y = 15;
+
+// g2lib ParamConstants.MODULE_COLORS (Index = color-Feld des Moduls)
+const MODULE_COLORS = [
+  '#EEEEEE', '#BABACC', '#BACCBA', '#CCBAB0', '#AACBD0', '#D4A074',
+  '#7A77E5', '#BDC17B', '#80B982', '#48D1E7', '#62D193', '#7DC7DE',
+  '#C29A8F', '#817DBA', '#8D8DCA', '#A5D1DE', '#9CCF94', '#C7D669',
+  '#C8D2A0', '#D2D2BE', '#C08C80', '#C773D6', '#BE82BE', '#D2A0CD', '#D2BED2',
+];
+
+const CABLE_COLORS: Record<string, string> = {
+  red: '#d04040', blue: '#4060d0', yellow: '#d0c040', orange: '#d08030',
+  green: '#40b050', purple: '#a050c0', white: '#e0e0e0',
+};
+
+// Connector-Füllfarben wie g2gui (Audio rot, Control blau, Logic gelb)
+const CONN_COLORS: Record<string, string> = {
+  audio: '#c04040', control: '#4060c0', logic: '#c0b040',
+};
+
+const SVG = 'http://www.w3.org/2000/svg';
+const el = <K extends keyof SVGElementTagNameMap>(
+  tag: K, attrs: Record<string, string | number>,
+): SVGElementTagNameMap[K] => {
+  const e = document.createElementNS(SVG, tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, String(v));
+  return e;
+};
+
+const iconUrl = (def?: ModuleDef) =>
+  def ? `/module-icons/${String(def.ix).padStart(3, '0')}.png` : undefined;
+
+export function moduleIcon(defs: ModuleDefs, typeName: string): string | undefined {
+  return iconUrl(defs[typeName]);
+}
+
+/** Connector-Mittelpunkt in Area-Koordinaten; undefined wenn unbekannt. */
+function connCenter(
+  defs: ModuleDefs, modules: Map<number, Module>,
+  moduleId: number, conn: number, output: boolean,
+): { x: number; y: number } | undefined {
+  const m = modules.get(moduleId);
+  const def = m && defs[m.typeName];
+  if (!m || !def) return undefined;
+  const c = (output ? def.outputs : def.inputs)[conn];
+  if (!c) return undefined;
+  return { x: m.col * GRID_X + c.x + 6, y: m.row * GRID_Y + c.y + 6 };
+}
+
+/** Kabelpfad mit Durchhang (Quadratische Bezier), wie der Original-Editor. */
+function cablePath(a: { x: number; y: number }, b: { x: number; y: number }): string {
+  const dx = b.x - a.x, dy = b.y - a.y;
+  const sag = Math.min(40, 10 + Math.hypot(dx, dy) * 0.12);
+  return `M ${a.x} ${a.y} Q ${a.x + dx / 2} ${Math.max(a.y, b.y) + sag} ${b.x} ${b.y}`;
+}
+
+export interface AreaView {
+  svg: SVGSVGElement;
+  /** Auswahl-Hervorhebung setzen (moduleId oder null). */
+  select(moduleId: number | null): void;
+}
+
+export function renderArea(
+  area: Area, modules: Module[], cables: Cable[], defs: ModuleDefs,
+  onSelect: (m: Module) => void,
+): AreaView {
+  const byId = new Map(modules.map((m) => [m.id, m]));
+  const cols = Math.max(...modules.map((m) => m.col), 0) + 1;
+  const rows = Math.max(...modules.map((m) => m.row + (defs[m.typeName]?.height ?? 2)), 4);
+  const w = cols * GRID_X, h = rows * GRID_Y;
+
+  const svg = el('svg', { class: 'area', viewBox: `0 0 ${w} ${h}`, width: w, height: h });
+  svg.dataset.area = area;
+  const modLayer = el('g', {});
+  const cableLayer = el('g', {});
+  svg.append(modLayer, cableLayer);
+
+  const groups = new Map<number, SVGGElement>();
+  for (const m of modules) {
+    const def = defs[m.typeName];
+    const mh = (def?.height ?? 2) * GRID_Y;
+    const g = el('g', { class: 'mod', transform: `translate(${m.col * GRID_X},${m.row * GRID_Y})` });
+    g.appendChild(el('rect', {
+      class: 'body', width: GRID_X - 1, height: mh - 1, rx: 1,
+      fill: MODULE_COLORS[m.color] ?? MODULE_COLORS[0],
+    }));
+    const icon = iconUrl(def);
+    if (icon) {
+      const img = el('image', { x: 2, y: 1, width: 13, height: 13 });
+      img.setAttribute('href', icon);
+      g.appendChild(img);
+    }
+    const label = el('text', { x: icon ? 17 : 3, y: 11, 'font-size': 10, fill: '#222' });
+    label.textContent = m.name || m.typeName;
+    g.appendChild(label);
+
+    if (def) {
+      for (const [list, isOut] of [[def.inputs, false], [def.outputs, true]] as const) {
+        for (const c of list) {
+          const fill = CONN_COLORS[c.type] ?? '#888';
+          g.appendChild(isOut
+            ? el('rect', { x: c.x + 1, y: c.y + 1, width: 10, height: 10, fill, stroke: '#222' })
+            : el('circle', { cx: c.x + 6, cy: c.y + 6, r: 5, fill, stroke: '#222' }));
+        }
+      }
+    }
+    g.addEventListener('click', () => onSelect(m));
+    groups.set(m.id, g);
+    modLayer.appendChild(g);
+  }
+
+  for (const c of cables.filter((c) => c.area === area)) {
+    const a = connCenter(defs, byId, c.from.module, c.from.conn, c.fromOutput ?? true);
+    const b = connCenter(defs, byId, c.to.module, c.to.conn, false);
+    if (!a || !b) continue;
+    const stroke = CABLE_COLORS[c.color] ?? c.color;
+    cableLayer.appendChild(el('path', {
+      d: cablePath(a, b), fill: 'none', stroke, 'stroke-width': 3,
+      'stroke-linecap': 'round', opacity: 0.85,
+    }));
+    for (const p of [a, b]) {
+      cableLayer.appendChild(el('circle', { cx: p.x, cy: p.y, r: 4, fill: stroke, stroke: '#111' }));
+    }
+  }
+
+  return {
+    svg,
+    select(moduleId) {
+      groups.forEach((g, id) => g.classList.toggle('selected', id === moduleId));
+    },
+  };
+}
