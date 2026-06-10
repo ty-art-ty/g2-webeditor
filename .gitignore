@@ -1,0 +1,6 @@
+backend/build/
+backend/.gradle/
+# g2lib ist vendored UND lokal gepatcht (siehe docs/phase2/3-ergebnis.md) -> wird committet
+backend/src/main/resources/g2data/
+frontend/node_modules/
+frontend/dist/

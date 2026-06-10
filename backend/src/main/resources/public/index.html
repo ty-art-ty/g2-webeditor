@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>G2 Web-Editor</title>
+  <style>
+    :root {
+      --bg: #1d1f24; --panel: #26282e; --border: #3c3f47; --text: #e8e8e8;
+      --dim: #9aa0aa; --accent: #e0a030; --ok: #6abf69; --bad: #d05050;
+    }
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, sans-serif; margin: 0; background: var(--bg); color: var(--text); }
+
+    header {
+      display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
+      padding: .6rem 1rem; background: var(--panel); border-bottom: 1px solid var(--border);
+      position: sticky; top: 0; z-index: 10;
+    }
+    header h1 { font-size: 1rem; margin: 0; }
+    #patchname { color: var(--accent); }
+    #conn { font-size: .8rem; }
+    #conn.ok::before { content: "● "; color: var(--ok); }
+    #conn.bad::before { content: "● "; color: var(--bad); }
+
+    #variations { display: flex; gap: .25rem; margin-left: auto; }
+    #variations button {
+      width: 2rem; height: 2rem; border: 1px solid var(--border); border-radius: 4px;
+      background: none; color: var(--text); cursor: pointer; font-size: .85rem;
+    }
+    #variations button.active { background: var(--accent); color: #222; border-color: var(--accent); }
+
+    main { display: grid; grid-template-columns: 16rem 1fr; gap: 0; min-height: calc(100vh - 3.2rem); }
+
+    #banks {
+      border-right: 1px solid var(--border); padding: .8rem; overflow-y: auto;
+      max-height: calc(100vh - 3.2rem); position: sticky; top: 3.2rem;
+    }
+    #banks h2 { font-size: .8rem; text-transform: uppercase; color: var(--dim); margin: .2rem 0 .6rem; }
+    #banks details { margin-bottom: .4rem; }
+    #banks summary { cursor: pointer; font-size: .85rem; color: var(--dim); }
+    #banks li {
+      list-style: none; font-size: .85rem; padding: .15rem .3rem; cursor: pointer;
+      border-radius: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    #banks li:hover { background: var(--border); }
+    #banks ul { padding-left: .6rem; margin: .3rem 0; }
+
+    #patch { padding: 1rem; }
+    .area-title { font-size: .8rem; text-transform: uppercase; color: var(--dim); margin: 1rem 0 .5rem; }
+    .modules { display: grid; grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr)); gap: .6rem; }
+    .module { border: 1px solid var(--border); border-radius: 6px; padding: .6rem .8rem; background: var(--panel); }
+    .module h3 { margin: 0 0 .45rem; font-size: .9rem; display: flex; justify-content: space-between; }
+    .module h3 .type { color: var(--dim); font-weight: normal; font-size: .8rem; }
+    .param { display: grid; grid-template-columns: 7.5rem 1fr 2.6rem; gap: .5rem; align-items: center; font-size: .8rem; }
+    .param label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--dim); }
+    .param span { text-align: right; font-variant-numeric: tabular-nums; }
+    input[type=range] { width: 100%; accent-color: var(--accent); }
+  </style>
+  <script type="module" crossorigin src="/assets/index-Cjss1TCc.js"></script>
+</head>
+<body>
+  <header>
+    <h1>G2 <span id="patchname">—</span></h1>
+    <span id="perfinfo" style="font-size:.8rem;color:var(--dim)"></span>
+    <span id="conn" class="bad">verbinde…</span>
+    <div id="variations"></div>
+  </header>
+  <main>
+    <nav id="banks"><h2>Patches</h2><div id="banklist">lade…</div></nav>
+    <section id="patch"></section>
+  </main>
+</body>
+</html>

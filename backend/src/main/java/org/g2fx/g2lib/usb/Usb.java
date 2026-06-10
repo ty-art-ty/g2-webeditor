@@ -1,0 +1,297 @@
+package org.g2fx.g2lib.usb;
+
+import org.g2fx.g2lib.util.CRC16;
+import org.g2fx.g2lib.util.Util;
+import org.usb4java.BufferUtils;
+import org.usb4java.LibUsb;
+
+import java.io.File;
+import java.nio.ByteBuffer;
+import java.nio.IntBuffer;
+import java.util.concurrent.Future;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+import static org.g2fx.g2lib.usb.UsbService.ERRORS;
+
+public class Usb implements UsbSender {
+    private static final Logger log = Util.getLogger(Usb.class);
+
+    // Endpoints
+    public static final byte EP_OUT_BULK = (byte) 0x03;
+    public static final byte EP_IN_INTERRUPT = (byte) 0x81;
+    public static final byte EP_IN_BULK = (byte) 0x82;
+
+    private final UsbService.UsbDevice device;
+    private final UsbReadThread readThread;
+
+    private MessageRecorder recorder;
+
+    /**
+     * Same-thread dispatcher
+     */
+    private Dispatcher dispatcher;
+
+    public Usb(UsbService.UsbDevice device) {
+        this.device = device;
+        readThread = new UsbReadThread(this);
+    }
+
+    public void start() {
+        readThread.start();
+    }
+
+
+    /**
+     * Sends DATA and if specified waits for DISPATCH of response. MSG is for logging.
+     * @return length if send success or 0 on error.
+     */
+    @Override
+    public synchronized int sendBulk(String msg, boolean dispatch, ByteBuffer data) throws Exception {
+
+        Future<UsbMessage> dispatchFuture = dispatch ? expect("dispatch future", m -> true) : null;
+
+        ByteBuffer buffer = prepareSendBuffer(data);
+        log.info(String.format("--------------- Send Bulk: %s ----------------", msg) + Util.dumpBufferString(buffer));
+        IntBuffer transferred = BufferUtils.allocateIntBuffer();
+        int r = LibUsb.bulkTransfer(device.handle(), EP_OUT_BULK, buffer, transferred, 10000);
+        if (r >= 0) {
+            //transferred.rewind();
+            log.info("Sent: " + transferred.get(0));
+        }
+        // TODO ??? shouldn't really be dispatching on failure here
+        if (dispatchFuture != null) {
+            UsbMessage fm = dispatchFuture.get();
+            try {
+                dispatcher.dispatch(fm);
+            } catch (Exception e) {
+                log.severe("Failure dispatching message: " + fm);
+                throw e;
+            }
+        }
+
+        return transferred.get();
+    }
+
+    public static ByteBuffer prepareSendBuffer(ByteBuffer data) {
+        int size = data.limit() + 4;
+        ByteBuffer buffer = BufferUtils.allocateByteBuffer(size);
+        buffer.put((byte) (size / 256));
+        buffer.put((byte) (size % 256));
+        buffer.put(data.rewind());
+        int crc = CRC16.crc16(data);
+        //dumpBytes(data);
+        log.info(String.format("send crc: %x %x %x", crc, crc / 256, crc % 256));
+        buffer.put((byte) (crc / 256));
+        buffer.put((byte) (crc % 256));
+        return buffer;
+    }
+
+    @SuppressWarnings("unused")
+    public UsbMessage readInterruptRetry() {
+        UsbMessage r = new UsbMessage(-1,false,-1,null);
+        for (int i = 0; i < 5; i++) {
+            r = readInterrupt(2000);
+            if (r.success()) { return r; }
+        }
+        log.info("Interrupt retries exhausted");
+        return r;
+    }
+    public UsbMessage readInterrupt(int timeout) {
+        ByteBuffer buffer = BufferUtils.allocateByteBuffer(16);
+        IntBuffer transferred = BufferUtils.allocateIntBuffer();
+        int r = LibUsb.interruptTransfer(device.handle(), EP_IN_INTERRUPT, buffer, transferred, timeout);
+        if (r < 0) {
+            if (r != -7) { //timeout
+                log.info(String.format("--------------- Read Interrupt failure: %s ----------------",
+                        ERRORS.get(r)));
+            }
+            return new UsbMessage(r,false,-1,null);
+        } else {
+            UsbMessage m = parseInterrupt(buffer);
+            if (!m.extended()) {
+                log.info(() -> String.format("--------------- Read Interrupt embedded, crc: %x", m.crc()) +
+                        Util.dumpBufferString(m.buffer()));
+                record(m);
+            } else {
+                log.info(() -> String.format("--------------- Read Interrupt extended, size: %x", m.size()) +
+                        Util.dumpBufferString(buffer));
+            }
+            return m;
+        }
+    }
+
+    public static UsbMessage parseInterrupt(ByteBuffer buffer) {
+        int type = buffer.get(0) & 0xf;
+        boolean extended = type == 1;
+        //String s = Util.dumpBufferString(buffer);
+        boolean embedded = type == 2;
+        int crc = 0;
+        if (embedded) {
+            int dil = (buffer.get(0) & 0xf0) >> 4;
+            crc = CRC16.crc16(buffer, 1, dil - 2);
+        }
+        int size = buffer.getShort(1);
+        UsbMessage m = new UsbMessage(size, extended, crc, buffer);
+        return m;
+    }
+
+    public void startRecording(String sessionName, File dir) throws Exception {
+        this.recorder = new MessageRecorder(sessionName,dir);
+        log.info("Recording messages to " + recorder.getPath());
+    }
+
+    public void stopRecording() {
+        log.info("Stopping recording to " + recorder.getPath());
+        recorder.stop();
+        this.recorder = null;
+    }
+
+    private UsbMessage record(UsbMessage msg) {
+        if (recorder == null || msg == null) { return msg; }
+        try {
+            recorder.record(msg);
+        } catch (Exception e) {
+            log.log(Level.SEVERE,"Recording failed, stopping",e);
+            stopRecording();
+        }
+        return msg;
+    }
+
+    public UsbMessage readBulkRetries(int size, int retries) {
+        UsbMessage r = new UsbMessage(-1,true,-1,null);
+        for (int i = 0; i < retries; i++) {
+            r = readBulk(size);
+            if (r.success()) {
+                return r;
+            }
+        }
+        return r;
+    }
+
+    public UsbMessage readBulk(int size) {
+        ByteBuffer buffer = BufferUtils.allocateByteBuffer(size);
+        IntBuffer transferred = BufferUtils.allocateIntBuffer();
+        int r = LibUsb.bulkTransfer(device.handle(), EP_IN_BULK, buffer, transferred, 5000);
+        if (r < 0) {
+            log.info("--------------- Read Bulk failure: " + ERRORS.get(r) + " ---------------");
+            return new UsbMessage(r,true,-1,null);
+        } else {
+            int tfrd = transferred.get();
+            if (tfrd > 0) {
+                UsbMessage msg = parseBulk(size, buffer);
+                log.info(() -> String.format("--------------- Read Bulk size: %x crc: %x %x", tfrd, msg.crc(),
+                        msg.buffer().getShort(size - 2)) + Util.dumpBufferString(msg.buffer()));
+                return record(msg);
+            } else {
+                return new UsbMessage(0,true,-1,null);
+            }
+        }
+    }
+
+    public static UsbMessage parseBulk(int size, ByteBuffer buffer) {
+        // buffer.rewind();
+        int len = buffer.limit();
+        //dumpBytes(recd);
+        int ecrc = CRC16.crc16(buffer, 0, len - 2);
+
+        UsbMessage msg = new UsbMessage(size, true, ecrc, buffer);
+        return msg;
+    }
+
+    /**
+     * a slot command does not expect a response
+     * @param slot 0-3
+     * @param version patch version
+     * @param msg log msg
+     * @param cdata cmd data
+     * @return success code
+     */
+    public int sendSlotCommand(int slot, int version, String msg, int... cdata) throws Exception {
+        return sendBulk(msg, false, Util.concat(Util.asBytes(
+                0x01,
+                0x30 + 0x08 + slot, // CMD_NO_RESP + CMD_SLOT + slot index
+                version
+        ),Util.asBytes(cdata)));
+    }
+
+    @Override
+    public void shutdown() {
+
+        readThread.shutdown();
+
+        if (deviceInvalid()) { return; }
+
+        log.info("Releasing handle");
+        UsbService.retcode(LibUsb.releaseInterface(device.handle(),
+                UsbService.IFACE), "Unable to release interface");
+
+        log.info("Closing handle");
+        LibUsb.close(device.handle());
+
+    }
+
+    public boolean deviceInvalid() {
+        return device.handle().getPointer() == 0;
+    }
+    /*
+S_SET_PARAM :
+  begin
+    Size := 13;
+    [ 0] := 0; // size msb
+    [ 1] := Size; // size lsb
+    [ 2] := $01;
+    [ 3] := CMD_NO_RESP + CMD_SLOT + SlotIndex; // CMD_NO_RESP = 0x30, CMD_SLOT = 0x08
+    [ 4] := Slot.PatchVersion; // Current patch version!
+    [ 5] := S_SET_PARAM; // 0x40
+    [ 6] := Slot.FParamUpdBuf[i].Location;
+    [ 7] := Slot.FParamUpdBuf[i].Module;
+    [ 8] := Slot.FParamUpdBuf[i].Param;
+    [ 9] := Slot.FParamUpdBuf[i].Value;
+    [10] := Slot.FParamUpdBuf[i].Variation;
+  end;
+S_SEL_PARAM :
+  begin
+    Size := 12;
+  [ 0] := 0;
+  [ 1] := Size;
+  [ 2] := $01;
+  [ 3] := CMD_NO_RESP + CMD_SLOT + SlotIndex; // CMD_NO_RESP = 0x30, CMD_SLOT = 0x08
+  [ 4] := Slot.PatchVersion; // Current patch version!
+  [ 5] := S_SEL_PARAM; // 0x2f
+  [ 6] := 00;
+  [ 7] := Slot.FParamUpdBuf[i].Location;
+  [ 8] := Slot.FParamUpdBuf[i].Module;
+  [ 9] := Slot.FParamUpdBuf[i].Param;
+  end;
+S_SET_MORPH_RANGE :
+  begin
+    Size := 15;
+   [ 0] := 0;
+   [ 1] := Size;
+   [ 2] := $01;
+   [ 3] := CMD_NO_RESP + CMD_SLOT + SlotIndex; // CMD_NO_RESP = 0x30, CMD_SLOT = 0x08
+   [ 4] := Slot.PatchVersion; // Current patch version!
+   [ 5] := S_SET_MORPH_RANGE; // 0x43
+   [ 6] := Slot.FParamUpdBuf[i].Location;
+   [ 7] := Slot.FParamUpdBuf[i].Module;
+   [ 8] := Slot.FParamUpdBuf[i].Param;
+   [ 9] := Slot.FParamUpdBuf[i].Morph;
+   [10] := Slot.FParamUpdBuf[i].Value;
+   [11] := Slot.FParamUpdBuf[i].Negative;
+   [12] := Slot.FParamUpdBuf[i].Variation;
+     */
+
+    public Future<UsbMessage> expect(String id, UsbReadThread.MsgP filter) {
+        return readThread.expect(id,filter);
+    }
+
+    @Override
+    public void setDispatcher(Dispatcher dispatcher) {
+        this.dispatcher = dispatcher;
+    }
+
+    public void setThreadsafeDispatcher(Dispatcher dispatcher) {
+        readThread.setDispatcher(dispatcher);
+    }
+}

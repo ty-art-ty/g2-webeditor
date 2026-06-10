@@ -1,0 +1,2 @@
+# Nord Modular G2 (Clavia DMI AB) — USB-Zugriff für Gruppe plugdev ohne root
+SUBSYSTEM=="usb", ATTRS{idVendor}=="0ffc", MODE="0660", GROUP="plugdev", TAG+="uaccess"

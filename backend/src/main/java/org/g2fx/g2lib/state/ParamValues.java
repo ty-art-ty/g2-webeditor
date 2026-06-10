@@ -1,0 +1,111 @@
+package org.g2fx.g2lib.state;
+
+import org.g2fx.g2lib.model.LibProperty;
+import org.g2fx.g2lib.protocol.FieldValues;
+import org.g2fx.g2lib.protocol.Protocol;
+import org.g2fx.g2lib.usb.UsbSlotSender;
+import org.g2fx.g2lib.util.Util;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.logging.Logger;
+
+import static org.g2fx.g2lib.state.PatchModule.MAX_VARIATIONS;
+import static org.g2fx.g2lib.util.Util.mapWithIndex;
+
+public class ParamValues {
+
+    private final Logger log;
+
+    private final List<FieldValues> values;
+    private final List<List<LibProperty<Integer>>> props;
+
+    /**
+     * @param values list of {@link Protocol.VarParams} field values,
+     *               size {@link PatchModule#MAX_VARIATIONS}
+     */
+    public ParamValues(List<FieldValues> values, UsbSlotSender sender, AreaId area,int index) {
+        log = Util.getLogger(getClass(),area,index);
+        this.values = values;
+        props = mapWithIndex(values,(vfv,var) ->
+                mapWithIndex(Protocol.VarParams.Params.subfieldsValue(vfv),(fvs,param) -> {
+                    LibProperty<Integer> p = new LibProperty<>(new LibProperty.LibPropertyGetterSetter<>() {
+                        @Override
+                        public Integer get() {
+                            return Protocol.Data7.Datum.intValue(fvs);
+                        }
+                        @Override
+                        public void set(Integer newValue) {
+                            fvs.update(Protocol.Data7.Datum.value(newValue));
+                        }
+                    });
+                    p.addListener((o,n) -> {
+                        log.info(() -> "updateParam: " + param + " -> " + n);
+                        sender.sendSlotCommand("update-param",
+                                0x40, //S_SET_PARAM
+                                area.ordinal(), index, param, n, var
+                        );
+                    });
+                    return p;
+                }));
+    }
+
+
+    public static List<FieldValues> mkDefaultVarParams(List<Integer> values) {
+        List<FieldValues> vfvs = new ArrayList<>();
+        for (int v = 0; v < MAX_VARIATIONS; v++) {
+            vfvs.add(mkDefaultParams(values, v));
+        }
+        return vfvs;
+    }
+
+    public static FieldValues mkDefaultParams(List<Integer> values, int v) {
+        return Protocol.VarParams.FIELDS.init().addAll(
+                Protocol.VarParams.Variation.value(v),
+                Protocol.VarParams.Params.value(values.stream().map(np ->
+                        Protocol.Data7.FIELDS.init().add(
+                                Protocol.Data7.Datum.value(np)
+                        )).toList()));
+    }
+
+    public LibProperty<Integer> param(int variation,int idx) {
+        List<LibProperty<Integer>> ps = props.get(validateVariation(variation));
+        if (idx >= ps.size()) { throw new IllegalArgumentException("Invalid param index: " + idx); }
+        return ps.get(idx);
+    }
+
+    public List<FieldValues> getValues() {
+        return values;
+    }
+
+    public FieldValues getRequiredVarValues(int variation) {
+        return values.get(validateVariation(variation));
+    }
+
+    public List<Integer> getVarValues(int variation) {
+        FieldValues vvs = getRequiredVarValues(variation);
+        return getParamValues(vvs);
+    }
+
+    public static List<Integer> getParamValues(FieldValues vvs) {
+        return Protocol.VarParams.Params.subfieldsValue(vvs)
+                .stream().map(Protocol.Data7.Datum::intValue).toList();
+    }
+
+    private int validateVariation(int variation) {
+        if (variation >= values.size()) {
+            throw new IllegalArgumentException("Invalid/missing variation: " + variation);
+        }
+        return variation;
+    }
+
+    public List<List<Integer>> getAllVarValues() {
+        return getValues().stream().map(ParamValues::getParamValues).toList();
+    }
+
+    public void updateParam(FieldValues fvs) {
+        param(Protocol.ParamUpdate.Variation.intValue(fvs),
+                Protocol.ParamUpdate.Param.intValue(fvs))
+                .set(Protocol.ParamUpdate.Value.intValue(fvs));
+    }
+}

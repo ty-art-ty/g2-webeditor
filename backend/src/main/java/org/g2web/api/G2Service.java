@@ -1,0 +1,33 @@
+package org.g2web.api;
+
+import java.util.List;
+import java.util.Map;
+import java.util.function.Consumer;
+
+/**
+ * Abstraktion über den G2. Implementierungen:
+ * - MockG2Service: Entwicklung/Frontend-Arbeit ohne Hardware
+ * - G2LibService:  Adapter auf org.g2fx.g2lib (USB), siehe org.g2web.usb
+ *
+ * Nachrichtenformate: docs/protocol.md
+ */
+public interface G2Service {
+
+    boolean isConnected();
+
+    /** Aktueller Patch-State des gewählten Slots als JSON-serialisierbare Struktur. */
+    Map<String, Object> getPatchState();
+
+    /** Bank-/Patch-Liste vom Gerät. */
+    List<Map<String, Object>> getBanks();
+
+    void loadPatch(int bank, int slot);
+
+    /** @param area "va" oder "fx" — Modul-Indizes sind nur pro Area eindeutig. */
+    void setParam(String area, int module, int param, int value, int variation);
+
+    void selectVariation(int variation);
+
+    /** Events vom G2 (Param-Änderungen am Gerät, Patch-Wechsel, Connect/Disconnect). */
+    void onEvent(Consumer<Map<String, Object>> listener);
+}
