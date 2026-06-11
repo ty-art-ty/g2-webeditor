@@ -3,6 +3,7 @@ import type {
   UndoInfo,
 } from './protocol';
 import { type AreaView, MODULE_COLORS, moduleIcon, renderArea } from './graph';
+import { setTables } from './textfuncs';
 
 const $ = (id: string) => document.getElementById(id)!;
 const connEl = $('conn');
@@ -58,16 +59,29 @@ function handle(msg: ServerMessage) {
       // Events tragen den Slot — Änderungen nicht-angezeigter Slots ignorieren
       if (msg.slot && currentPatch && msg.slot !== currentPatch.slot) break;
       if (msg.variation !== currentVariation) break;
+      if (msg.area === 'settings') break; // Settings-Panel folgt später
       // State nachziehen, damit Re-Renders (Auswahl/Zoom) aktuelle Werte zeigen
       const mod = findModule(msg.area, msg.module);
       const p = mod?.params.find((x) => x.id === msg.param);
-      if (p) p.value = msg.value;
+      if (p) {
+        p.value = msg.value;
+        if (msg.text !== undefined) p.text = msg.text;
+      }
+      areaViews.get(msg.area)?.updateModule(msg.module); // Modul-Controls nachziehen
       const input = document.querySelector<HTMLInputElement>(
         `input[data-area="${msg.area}"][data-module="${msg.module}"][data-param="${msg.param}"]`);
       if (input && document.activeElement !== input) {
         input.value = String(msg.value);
         input.parentElement!.querySelector('span')!.textContent = String(msg.value);
       }
+      break;
+    }
+    case 'modeChanged': {
+      if (msg.slot && currentPatch && msg.slot !== currentPatch.slot) break;
+      const mod = findModule(msg.area, msg.module);
+      const md = mod?.modes?.find((x) => x.id === msg.mode);
+      if (md) md.value = msg.value;
+      areaViews.get(msg.area)?.updateModule(msg.module);
       break;
     }
     case 'moduleMoved': {
@@ -266,7 +280,24 @@ function renderPatch(p: PatchState) {
       (from, fromOutput, to) => send({ type: 'addCable', area, from, to, fromOutput }),
       (c) => { selectedCable = c; },
       (ids, additive) => rectSelect(area, ids, additive),
-      () => new Set(selected?.area === area ? selected.ids : []));
+      () => new Set(selected?.area === area ? selected.ids : []),
+      {
+        // Modul-Controls: lokal setzen, Layer neu aufbauen, dann senden —
+        // das paramChanged-Echo ist idempotent
+        setParam: (m, param, value) => {
+          const pr = m.params[param];
+          if (pr) pr.value = value;
+          areaViews.get(m.area)?.updateModule(m.id);
+          send({ type: 'setParam', area: m.area, module: m.id, param,
+                 value, variation: currentVariation });
+        },
+        setMode: (m, mode, value) => {
+          const md = m.modes?.[mode];
+          if (md) md.value = value;
+          areaViews.get(m.area)?.updateModule(m.id);
+          send({ type: 'setMode', area: m.area, module: m.id, mode, value });
+        },
+      });
     areaViews.set(area, view);
     patchEl.appendChild(view.svg);
   }
@@ -554,6 +585,11 @@ function esc(s: string): string {
 async function init() {
   undoBtn.onclick = () => send({ type: 'undo' });
   redoBtn.onclick = () => send({ type: 'redo' });
+  try {
+    setTables(await (await fetch('/param-tables.json')).json());
+  } catch {
+    console.warn('param-tables.json nicht ladbar — TextFunc-Anzeigen zeigen Rohwerte');
+  }
   try {
     moduleDefs = await (await fetch('/module-defs.json')).json();
     // Datalist für die "+ Modul"-Controls (ein globales Element reicht)

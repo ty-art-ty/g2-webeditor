@@ -2,10 +2,18 @@
 
 export type Area = 'va' | 'fx';
 
-export interface Param { id: number; name: string; value: number; min: number; max: number; }
+export interface Param {
+  id: number; name: string; value: number; min: number; max: number;
+  /** Serverseitig formatierter Anzeigetext (enums/Formatter aus g2lib). */
+  text?: string;
+}
+/** Modul-Mode (statischer Param, eine Wertemenge für alle Variationen). */
+export interface Mode {
+  id: number; name: string; value: number; min: number; max: number; enums?: string[];
+}
 export interface Module {
   id: number; area: Area; typeName: string; name: string;
-  row: number; col: number; color: number; params: Param[];
+  row: number; col: number; color: number; params: Param[]; modes?: Mode[];
 }
 export interface Cable {
   area: Area;
@@ -17,9 +25,26 @@ export interface Cable {
 }
 
 // Statisch ausgeliefert: /module-defs.json (generiert aus g2fx, scripts/gen-module-defs.py)
-export interface ConnDef { x: number; y: number; type: 'audio' | 'control' | 'logic'; }
-export interface ModuleDef { ix: number; height: number; inputs: ConnDef[]; outputs: ConnDef[]; }
+export interface ConnDef { x: number; y: number; type: 'audio' | 'control' | 'logic'; name: string; }
+/**
+ * Control auf der Modulfläche (Original-Layout aus g2fx module-uis.yaml).
+ * Felder je nach cls; p = Param-Index (bzw. Mode-Index bei mode=true,
+ * MasterRef bei TextField). deps: Param-Indizes, "S<n>" = Mode-Index.
+ */
+export interface ControlDef {
+  cls: string; x: number; y: number; p?: number;
+  t?: string; ts?: string[]; len?: number; vert?: boolean; thick?: boolean;
+  sym?: string; w?: number; h?: number; img?: string; imgs?: string[]; iw?: number;
+  kt?: string; push?: boolean; n?: number; bw?: number; cols?: number; rows?: number;
+  deps?: (number | string)[]; tf?: number; mode?: boolean; lt?: string;
+}
+export interface ModuleDef {
+  ix: number; height: number; inputs: ConnDef[]; outputs: ConnDef[];
+  controls: ControlDef[];
+}
 export type ModuleDefs = Record<string, ModuleDef>;
+/** /param-tables.json — Konstanten für die TextFunc-Formatter (null = -Inf). */
+export type ParamTables = Record<string, (number | string | null)[]>;
 
 export interface PatchState {
   type: 'patchState'; connected: boolean;
@@ -35,9 +60,13 @@ export interface UndoInfo {
 }
 /** Broadcast nach jeder Verlaufs-Änderung (Mutation, undo/redo, Slot-/Patch-Wechsel). */
 export interface UndoState extends UndoInfo { type: 'undoState'; }
+export type ParamArea = Area | 'settings';
 export interface ParamChanged {
-  type: 'paramChanged'; slot?: string; area: Area;
-  module: number; param: number; value: number; variation: number;
+  type: 'paramChanged'; slot?: string; area: ParamArea;
+  module: number; param: number; value: number; variation: number; text?: string;
+}
+export interface ModeChanged {
+  type: 'modeChanged'; slot?: string; area: Area; module: number; mode: number; value: number;
 }
 export interface VariationChanged { type: 'variationChanged'; variation: number; slot?: string; }
 export interface Connection { type: 'connection'; connected: boolean; }
@@ -61,10 +90,14 @@ export interface SelectionCopied { type: 'selectionCopied'; area: Area; modules:
 export type ServerMessage =
   PatchState | ParamChanged | VariationChanged | Connection | ModuleMoved |
   CableAdded | CableDeleted | ModuleAdded | ModuleDeleted |
-  ModuleRenamed | ModuleColorChanged | SelectionCopied | UndoState;
+  ModuleRenamed | ModuleColorChanged | SelectionCopied | UndoState | ModeChanged;
 
 export interface SetParam {
-  type: 'setParam'; area: Area; module: number; param: number; value: number; variation: number;
+  type: 'setParam'; area: ParamArea; module: number; param: number; value: number; variation: number;
+}
+/** Modul-Mode setzen; Antwort = modeChanged. */
+export interface SetMode {
+  type: 'setMode'; area: Area; module: number; mode: number; value: number;
 }
 export interface SelectVariation { type: 'selectVariation'; variation: number; }
 /** Aktiven Slot wechseln (0–3 = A–D); Antwort = patchState des neuen Slots. */
@@ -100,7 +133,7 @@ export interface SetModuleColor { type: 'setModuleColor'; area: Area; module: nu
 export interface Undo { type: 'undo'; }
 export interface Redo { type: 'redo'; }
 export type ClientMessage =
-  SetParam | SelectVariation | SelectSlot | MoveModule | AddCable | DeleteCable |
+  SetParam | SetMode | SelectVariation | SelectSlot | MoveModule | AddCable | DeleteCable |
   AddModule | CopyModule | DeleteModule | RenameModule | SetModuleColor |
   MoveModules | DeleteModules | CopySelection |
   Undo | Redo;

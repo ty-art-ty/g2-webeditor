@@ -1,3 +1,63 @@
+# Phase 4b — Ergebnis Teil 11: Original-Modul-Layout (2026-06-11)
+
+**Status: ✅ Modulflächen wie im Clavia-Original — Port-Namen, Texte/Linien/
+Symbole/Bitmaps, interaktive Knobs/Buttons, TextFields mit Wert-Formatierung,
+am echten G2 verifiziert.** (Teil 10 Morph-UI + Performance-Mode folgen.)
+
+## Verifiziert (Browser gegen echten G2, Patch „HipHop beat box")
+
+- Visuell: Module rendern das Original-Layout (Sequencer-Reihen, Knobs,
+  Radio-/Flat-Buttons, TextFields „102 BPM"/„51.9Hz"/„415.3Hz"/„x1.41", Delay
+  „12.5m", dB/Oct-Buttons …)
+- Knob-Drag: ClkGen Rate 46→65→46 — Wert am G2, BPM-TextField live
+  121→102 BPM (TextFunc CLK_GEN inkl. Dependency-Reihenfolge korrekt)
+- ButtonText: ClkGen „Active" 1→0→1 (Klick toggelt, Server-State folgt)
+- Port-Tooltips: `<title>` z.B. „Rst (In, logic)"
+- Journal ohne 0x7e
+
+## Umsetzung
+
+- **Generator** (`gen-module-defs.py`): exportiert jetzt ALLE Control-Klassen
+  der g2fx `module-uis.yaml` (Text/Line/Symbol/Bitmap/Knob/ButtonText/
+  ButtonFlat/ButtonRadio(±Edit)/ButtonIncDec/TextEdit/TextField/PartSelector/
+  Led/MiniVU/LevelShift/Graph) kompakt nach module-defs.json; Port-Namen
+  (`Control`-Feld) an inputs/outputs; `param-tables.json` (LFO_CLOCK_VALS,
+  DELAY_VALS, PULSE_DELAY_RANGE, MIX_LEV_DB, LEV_AMP_DB — aus
+  ParamConstants.java geparst, -Inf→null); 138 Control-PNGs aus g2fx `img/`
+  nach module-images/. TextField-`Dependencies` können „S<n>" enthalten =
+  Mode-Index; PartSelector-CodeRef ist ein MODE-Index (type.modes), kein Param.
+- **Backend**: Params tragen `text` (Anzeigewert über g2lib ModParam
+  enums/Formatter — JavaFX-frei nutzbar) in patchState UND paramChanged;
+  Module tragen `modes` (Werte + enums); neu `setMode {area,module,mode,value}`
+  (UserModuleData.mode().set() sendet S_SET_MODE 0x2b selbst) mit
+  modeChanged-Broadcast; Mode-Listener je Modul.
+- **Frontend**: `controls.ts` rendert den Control-Layer je Modul (unter den
+  Ports); Knobs mit Vertikal-Drag (Drag-Listener am document — der Layer wird
+  bei jedem Wert-Update neu aufgebaut, sonst riss der Drag ab), Buttons/Radio/
+  IncDec/PartSelector/LevelShift klickbar, Push-Buttons momentan (down=1/up=0);
+  `textfuncs.ts` portiert die 14 TextFunc-Formatter aus g2gui
+  ModuleTextFieldBuilder/ParamTimes (Vorsicht Java-Int-Division: (fine-64)/128
+  ist immer 0); Fallback = serverseitiger Master-Param-Text. param-/modeChanged
+  bauen nur den Control-Layer des betroffenen Moduls neu (updateModule).
+- **Statisch (Absicht)**: LED/MiniVU dunkel, Graph als Platzhalter-Box — echte
+  Anzeigen bräuchten DSP-/Volume-Feedback vom Gerät bzw. GraphFunc-Portierung.
+
+## Stolpersteine
+
+- Browser-Cache überlebte sogar `location.reload(true)` — index.html kam aus
+  dem Disk-Cache mit altem Bundle-Verweis. Beim Testen Cache-Buster-Query
+  (`/?v=…`) verwenden.
+- Die Modul-Namen/Icons (unsere Zeile oben links) überlappen bei dichten
+  Layouts Original-Controls — kosmetisch, Backlog.
+
+## Offen (→ Teil 12+)
+
+1. Morph-UI (Backend setMorph/morphsOf fertig), Patch-Settings-Panel.
+2. Performance-Mode.
+3. Graph-Kurven (GraphFunc), LED/VU-Live-Feedback, Knob-Doppelklick=Default.
+
+---
+
 # Phase 4b — Ergebnis Teil 9: Undo-Feedback im UI (2026-06-11)
 
 **Status: ✅ Undo/Redo-Buttons mit Label+Tiefe, am echten G2 verifiziert.**

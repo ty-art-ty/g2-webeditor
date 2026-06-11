@@ -276,15 +276,112 @@ public final class G2LibService implements G2Service {
         });
     }
 
+    /** Protokoll-Area-Name -> AreaId; "settings" = Patch-Settings (Location 2). */
+    private static AreaId areaOf(String area) {
+        return switch (area) {
+            case "fx" -> AreaId.Fx;
+            case "settings" -> AreaId.Settings;
+            default -> AreaId.Voice;
+        };
+    }
+
+    private static String areaName(int location) {
+        return location == AreaId.Fx.ordinal() ? "fx"
+                : location == AreaId.Settings.ordinal() ? "settings" : "va";
+    }
+
     @Override
     public void setParam(String area, int module, int param, int value, int variation) {
         devices.runWithCurrentPerf(p -> {
-            AreaId areaId = "fx".equals(area) ? AreaId.Fx : AreaId.Voice;
-            PatchModule m = p.getSelectedPatch().getArea(areaId).getModule(module);
+            // Auch Patch-Settings (Gain/Glide/Bend/Vibrato/Arp/Misc, Morph-Dials/
+            // -Modes) sind Params: Pseudo-Module der Settings-Area, Location 2 —
+            // die ParamValues-Property sendet S_SET_PARAM 0x40 mit area.ordinal().
+            PatchModule m = p.getSelectedPatch().getArea(areaOf(area)).getModule(module);
             if (m == null) throw new IllegalArgumentException(
                     "Unbekanntes Modul: " + area + "/" + module);
             m.getParamValueProperty(variation, param).set(value);
         });
+    }
+
+    @Override
+    public void setMode(String area, int module, int mode, int value) {
+        devices.runWithCurrentPerf(p -> {
+            // Modes senden beim set() selbst (S_SET_MODE 0x2b, UserModuleData);
+            // der Broadcast kommt vom mode-Listener (attachModuleParamListeners).
+            PatchModule m = p.getSelectedPatch().getArea(areaOf(area)).getModule(module);
+            if (m == null) throw new IllegalArgumentException(
+                    "Unbekanntes Modul: " + area + "/" + module);
+            m.getUserModuleData().mode(mode).set(value);
+        });
+    }
+
+    @Override
+    public void setMorph(String area, int module, int param, int morph, int range,
+                         int variation) {
+        devices.runWithCurrentPerf(p -> {
+            Patch patch = p.getSelectedPatch();
+            // Alten Zustand DIESER Param-Zuweisung fürs Undo sichern (ein Param
+            // hängt höchstens an einem Morph)
+            var old = patch.getMorphParams().getMorphParam(
+                    variation, areaOf(area), module, param);
+            Integer oldMorph = old == null ? null : old.morph();
+            int oldRange = old == null ? 0 : signedRange(old.range());
+            setMorphInternal(p, area, module, param, morph, range, variation);
+            pushUndo("setMorph",
+                    p2 -> setMorphInternal(p2, area, module, param,
+                            oldMorph == null ? morph : oldMorph, oldMorph == null ? 0 : oldRange,
+                            variation),
+                    p2 -> setMorphInternal(p2, area, module, param, morph, range, variation));
+        });
+    }
+
+    private static int signedRange(int raw) { return raw > 127 ? raw - 256 : raw; }
+
+    /**
+     * Morph-Zuweisung setzen/aktualisieren/löschen (range 0 = löschen) ohne
+     * Undo-Buchhaltung. Wire-Format (BVerhue CreateSetMorphMessage):
+     * S_SET_MORPH_RANGE 0x43 [loc, module, param, morph, value, negative, variation]
+     * als Slot-Command (ohne Antwort, wie S_SET_PARAM). Negativ: value=|range|,
+     * negative=1 (Range am Gerät = 256+range).
+     */
+    private void setMorphInternal(Performance p, String area, int module, int param,
+                                  int morph, int range, int variation) throws Exception {
+        AreaId areaId = areaOf(area);
+        Patch patch = p.getSelectedPatch();
+        patch.getArea(areaId).getModule(module); // wirft bei unbekanntem Index
+        if (morph < 0 || morph > 7) throw new IllegalArgumentException("Morph 0–7: " + morph);
+        if (range < -128 || range > 127) throw new IllegalArgumentException(
+                "Range -128–127: " + range);
+        patch.getSlotSender().sendSlotCommand("set-morph",
+                0x43 /* S_SET_MORPH_RANGE */, areaId.ordinal(), module, param,
+                morph, Math.abs(range), range < 0 ? 1 : 0, variation);
+        // Lokalen State pflegen: VarMorphParam-Liste der Variation (Map-Werte sind
+        // die Live-Listen der MorphParameters-FieldValues)
+        List<org.g2fx.g2lib.protocol.FieldValues> asn =
+                patch.getMorphParams().getVarMorphs().get(variation);
+        if (asn != null) {
+            asn.removeIf(kp -> areaId.ordinal() == org.g2fx.g2lib.protocol.Protocol
+                            .VarMorphParam.Location.intValue(kp)
+                    && module == org.g2fx.g2lib.protocol.Protocol.VarMorphParam
+                            .ModuleIndex.intValue(kp)
+                    && param == org.g2fx.g2lib.protocol.Protocol.VarMorphParam
+                            .ParamIndex.intValue(kp));
+            if (range != 0) {
+                asn.add(org.g2fx.g2lib.protocol.Protocol.VarMorphParam.FIELDS.values(
+                        org.g2fx.g2lib.protocol.Protocol.VarMorphParam.Location
+                                .value(areaId.ordinal()),
+                        org.g2fx.g2lib.protocol.Protocol.VarMorphParam.ModuleIndex
+                                .value(module),
+                        org.g2fx.g2lib.protocol.Protocol.VarMorphParam.ParamIndex
+                                .value(param),
+                        org.g2fx.g2lib.protocol.Protocol.VarMorphParam.Morph.value(morph),
+                        org.g2fx.g2lib.protocol.Protocol.VarMorphParam.Range
+                                .value(range < 0 ? 256 + range : range)));
+            }
+        }
+        emit(Map.of("type", "morphChanged", "variation", variation,
+                "area", area, "module", module, "param", param,
+                "morph", morph, "range", range));
     }
 
     @Override
@@ -1073,7 +1170,93 @@ public final class G2LibService implements G2Service {
         }
         out.put("modules", modules);
         out.put("cables", cables);
+        out.put("settings", settingsOf(patch));
+        out.put("morphs", morphsOf(patch));
         return out;
+    }
+
+    /**
+     * Patch-Settings: Pseudo-Module der Settings-Area (Gain/Glide/Bend/Vibrato/
+     * Arpeggiator/Misc; Morphs separat in morphsOf). Werte der aktiven Variation.
+     */
+    private List<Map<String, Object>> settingsOf(Patch patch) {
+        List<Map<String, Object>> out = new ArrayList<>();
+        PatchArea sa = patch.getArea(AreaId.Settings);
+        for (org.g2fx.g2lib.model.SettingsModules sm
+                : org.g2fx.g2lib.model.SettingsModules.values()) {
+            if (sm == org.g2fx.g2lib.model.SettingsModules.Morphs) continue;
+            PatchModule m = sa.getSettingsModule(sm);
+            List<Integer> values = m.getValues() == null ? List.of() : m.getVarValues(variation);
+            List<ModParam> defs = sm.getModParams();
+            List<Map<String, Object>> params = new ArrayList<>();
+            for (int i = 0; i < defs.size(); i++) {
+                ModParam mp = defs.get(i);
+                Map<String, Object> pm = new LinkedHashMap<>();
+                pm.put("id", i);
+                pm.put("name", mp.name());
+                pm.put("value", i < values.size() ? values.get(i) : 0);
+                pm.put("min", mp.min);
+                pm.put("max", mp.max);
+                if (mp.enums != null && !mp.enums.isEmpty()) pm.put("enums", mp.enums);
+                params.add(pm);
+            }
+            out.add(Map.of("id", sm.getModIndex(), "name", sm.name(), "params", params));
+        }
+        return out;
+    }
+
+    /** Morph-Gruppen: Dial/Mode (Params des Morphs-Pseudo-Moduls) + Zuweisungen. */
+    private List<Map<String, Object>> morphsOf(Patch patch) {
+        List<Map<String, Object>> out = new ArrayList<>();
+        PatchModule morphMod = patch.getArea(AreaId.Settings).getSettingsModule(
+                org.g2fx.g2lib.model.SettingsModules.Morphs);
+        List<Integer> vals = morphMod.getValues() == null
+                ? java.util.Collections.nCopies(16, 0) : morphMod.getVarValues(variation);
+        List<org.g2fx.g2lib.protocol.FieldValues> asn =
+                patch.getMorphParams().getVarMorphs().get(variation);
+        for (int morph = 0; morph < 8; morph++) {
+            List<Map<String, Object>> assigns = new ArrayList<>();
+            if (asn != null) {
+                for (org.g2fx.g2lib.protocol.FieldValues kp : asn) {
+                    if (org.g2fx.g2lib.protocol.Protocol.VarMorphParam.Morph
+                            .intValue(kp) != morph) continue;
+                    assigns.add(Map.of(
+                            "area", areaName(org.g2fx.g2lib.protocol.Protocol
+                                    .VarMorphParam.Location.intValue(kp)),
+                            "module", org.g2fx.g2lib.protocol.Protocol.VarMorphParam
+                                    .ModuleIndex.intValue(kp),
+                            "param", org.g2fx.g2lib.protocol.Protocol.VarMorphParam
+                                    .ParamIndex.intValue(kp),
+                            "range", signedRange(org.g2fx.g2lib.protocol.Protocol
+                                    .VarMorphParam.Range.intValue(kp))));
+                }
+            }
+            out.add(Map.of("morph", morph,
+                    "label", org.g2fx.g2lib.model.SettingsModules.MORPH_LABELS[morph],
+                    "dial", vals.get(morph), "mode", vals.get(8 + morph),
+                    "assigns", assigns));
+        }
+        return out;
+    }
+
+    /**
+     * Anzeigetext eines Param-Werts: enums > Formatter > roher Wert.
+     * (Gleiche Logik wie g2gui mkTextField; Formatter sind JavaFX-frei.)
+     */
+    private static String textOf(ModParam mp, int value) {
+        try {
+            if (mp.enums != null && !mp.enums.isEmpty()) {
+                int ix = value - mp.min;
+                if (ix >= 0 && ix < mp.enums.size()) return mp.enums.get(ix);
+            }
+            if (mp.formatter != null) {
+                if (mp.formatter.intFmt() != null) return mp.formatter.intFmt().apply(value);
+                if (mp.formatter.boolFmt() != null) return mp.formatter.boolFmt().apply(value != 0);
+            }
+        } catch (RuntimeException e) {
+            // defekter Formatter -> roher Wert
+        }
+        return String.valueOf(value);
     }
 
     private Map<String, Object> moduleOf(PatchModule m, String areaName) {
@@ -1086,12 +1269,31 @@ public final class G2LibService implements G2Service {
         for (int i = 0; i < defs.size(); i++) {
             NamedParam np = defs.get(i);
             ModParam mp = np.param();
+            int value = i < values.size() ? values.get(i) : 0;
             params.add(Map.of(
                     "id", i,
                     "name", np.name(),
-                    "value", i < values.size() ? values.get(i) : 0,
+                    "value", value,
                     "min", mp.min,
-                    "max", mp.max));
+                    "max", mp.max,
+                    "text", textOf(mp, value)));
+        }
+
+        // Modes (statische Modul-Params, z.B. ClkDiv DivMode) für PartSelector/TextFuncs
+        List<NamedParam> modeDefs = umd.getType().modes;
+        List<Map<String, Object>> modes = new ArrayList<>();
+        for (int i = 0; i < modeDefs.size(); i++) {
+            NamedParam np = modeDefs.get(i);
+            ModParam mp = np.param();
+            int value = umd.mode(i).get();
+            Map<String, Object> mm = new LinkedHashMap<>();
+            mm.put("id", i);
+            mm.put("name", np.name());
+            mm.put("value", value);
+            mm.put("min", mp.min);
+            mm.put("max", mp.max);
+            if (mp.enums != null && !mp.enums.isEmpty()) mm.put("enums", mp.enums);
+            modes.add(mm);
         }
 
         Map<String, Object> out = new LinkedHashMap<>();
@@ -1103,6 +1305,7 @@ public final class G2LibService implements G2Service {
         out.put("col", umd.column().get());
         out.put("color", umd.color().get());
         out.put("params", params);
+        out.put("modes", modes);
         return out;
     }
 
@@ -1149,24 +1352,54 @@ public final class G2LibService implements G2Service {
                     attachModuleParamListeners(slot, areaName, m);
                 }
             }
+            // Settings-Pseudo-Module (Patch-Settings + Morph-Dials/-Modes) ebenfalls —
+            // Änderungen am Gerät kommen als paramChanged mit area "settings"
+            for (PatchModule m : patch.getArea(AreaId.Settings).getModules()) {
+                attachModuleParamListeners(slot, "settings", m);
+            }
         } catch (Exception e) {
             log.log(Level.WARNING, "attachPatchListeners fehlgeschlagen", e);
         }
     }
 
-    /** paramChanged-Broadcasts für ein Modul (auch für frisch angelegte Module). */
+    /** ModParam-Definitionen eines Moduls (User-Module via Typ, Settings via Enum). */
+    private static List<ModParam> modParamsOf(String areaName, PatchModule m) {
+        if ("settings".equals(areaName)) {
+            return org.g2fx.g2lib.model.SettingsModules.IX_LOOKUP
+                    .get(m.getIndex()).getModParams();
+        }
+        return m.getUserModuleData().getType().getParams().stream()
+                .map(NamedParam::param).toList();
+    }
+
+    /** param-/modeChanged-Broadcasts für ein Modul (auch für frisch angelegte Module). */
     private void attachModuleParamListeners(String slot, String areaName, PatchModule m) {
-        if (m.getValues() == null) return;
         int moduleId = m.getIndex();
-        int nParams = m.getUserModuleData().getType().getParams().size();
-        for (int v = 0; v < PatchModule.MAX_VARIATIONS; v++) {
-            for (int i = 0; i < nParams; i++) {
-                final int var = v, param = i;
-                m.getParamValueProperty(v, i).addListener((o, n) ->
-                        emit(Map.of("type", "paramChanged",
+        if (m.getValues() != null) {
+            List<ModParam> defs = modParamsOf(areaName, m);
+            int nParams = Math.min(defs.size(), m.getVarValues(0).size());
+            for (int v = 0; v < PatchModule.MAX_VARIATIONS; v++) {
+                for (int i = 0; i < nParams; i++) {
+                    final int var = v, param = i;
+                    final ModParam mp = defs.get(i);
+                    m.getParamValueProperty(v, i).addListener((o, n) ->
+                            emit(Map.of("type", "paramChanged",
+                                    "slot", slot, "area", areaName,
+                                    "module", moduleId, "param", param,
+                                    "value", n, "variation", var,
+                                    "text", textOf(mp, n))));
+                }
+            }
+        }
+        if (!"settings".equals(areaName)) {
+            // Modes (eine Wertemenge für alle Variationen)
+            var umd = m.getUserModuleData();
+            for (int i = 0; i < umd.getModes().size(); i++) {
+                final int mode = i;
+                umd.mode(i).addListener((o, n) ->
+                        emit(Map.of("type", "modeChanged",
                                 "slot", slot, "area", areaName,
-                                "module", moduleId, "param", param,
-                                "value", n, "variation", var)));
+                                "module", moduleId, "mode", mode, "value", n)));
             }
         }
     }

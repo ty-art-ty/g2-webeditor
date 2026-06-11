@@ -111,6 +111,18 @@ public final class Main {
                             intList(msg.get("modules")),
                             msg.get("dCol").asInt(),
                             msg.get("dRow").asInt());
+                    case "setMode" -> g2.setMode(
+                            msg.has("area") ? msg.get("area").asText() : "va",
+                            msg.get("module").asInt(),
+                            msg.get("mode").asInt(),
+                            msg.get("value").asInt());
+                    case "setMorph" -> g2.setMorph(
+                            msg.has("area") ? msg.get("area").asText() : "va",
+                            msg.get("module").asInt(),
+                            msg.get("param").asInt(),
+                            msg.get("morph").asInt(),
+                            msg.get("range").asInt(),
+                            msg.get("variation").asInt());
                     case "renameModule" -> g2.renameModule(
                             msg.has("area") ? msg.get("area").asText() : "va",
                             msg.get("module").asInt(),

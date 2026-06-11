@@ -93,6 +93,19 @@ public interface G2Service {
      */
     void copySelection(String area, List<Integer> modules, int dCol, int dRow);
 
+    /**
+     * Modul-Mode setzen (statische Modul-Params wie ClkDiv DivMode; eine
+     * Wertemenge für alle Variationen). Broadcastet "modeChanged".
+     */
+    void setMode(String area, int module, int mode, int value);
+
+    /**
+     * Morph-Zuweisung eines Params setzen/ändern/löschen (range 0 = löschen,
+     * -128…127, negativ = invertiert). area auch "settings". Broadcastet
+     * "morphChanged" und ist im Undo-Verlauf.
+     */
+    void setMorph(String area, int module, int param, int morph, int range, int variation);
+
     /** Modul umbenennen (max 16 ASCII-Zeichen). Broadcastet "moduleRenamed". */
     void renameModule(String area, int module, String name);
 

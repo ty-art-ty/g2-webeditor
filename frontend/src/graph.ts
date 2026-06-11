@@ -2,6 +2,7 @@
 // (Grid 255×15 px, Connector-Positionen aus module-defs.json).
 
 import type { Area, Cable, CableEnd, Module, ModuleDef, ModuleDefs } from './protocol';
+import { type ControlCtx, renderControls } from './controls';
 
 export const GRID_X = 255;
 export const GRID_Y = 15;
@@ -143,6 +144,8 @@ export interface AreaView {
   select(moduleIds: Set<number>): void;
   /** Kabel-Auswahl-Hervorhebung aufheben. */
   clearCableSelection(): void;
+  /** Control-Layer eines Moduls neu aufbauen (nach param-/modeChanged). */
+  updateModule(moduleId: number): void;
 }
 
 export function renderArea(
@@ -153,6 +156,7 @@ export function renderArea(
   onSelectCable: (c: Cable | null) => void,
   onRectSelect: (ids: number[], additive: boolean) => void,
   selectedIds: () => Set<number>,
+  ctl: ControlCtx,
 ): AreaView {
   const byId = new Map(modules.map((m) => [m.id, m]));
   const cols = Math.max(...modules.map((m) => m.col), 0) + 1;
@@ -295,6 +299,8 @@ export function renderArea(
     g.appendChild(label);
 
     if (def) {
+      // Controls (Original-Layout) UNTER den Ports, damit Ports greifbar bleiben
+      renderControls(g, m, def, ctl);
       for (const [list, isOut] of [[def.inputs, false], [def.outputs, true]] as const) {
         list.forEach((c, conn) => {
           const fill = CONN_COLORS[c.type] ?? '#888';
@@ -305,6 +311,10 @@ export function renderArea(
           port.setAttribute('data-conn', String(conn));
           port.setAttribute('data-out', isOut ? '1' : '0');
           port.style.cursor = 'crosshair';
+          // Tooltip mit Schnittstellen-Namen (aus g2fx module-uis.yaml)
+          const title = el('title', {});
+          title.textContent = `${c.name} (${isOut ? 'Out' : 'In'}, ${c.type})`;
+          port.appendChild(title);
           const center = { x: m.col * GRID_X + c.x + 6, y: m.row * GRID_Y + c.y + 6 };
           attachCableDrag(port, svg, overlay, center, m.id, conn, isOut, onAddCable);
           g.appendChild(port);
@@ -368,5 +378,11 @@ export function renderArea(
       groups.forEach((g, id) => g.classList.toggle('selected', moduleIds.has(id)));
     },
     clearCableSelection: clearCableSel,
+    updateModule(moduleId) {
+      const m = byId.get(moduleId);
+      const g = groups.get(moduleId);
+      const def = m && defs[m.typeName];
+      if (m && g && def) renderControls(g, m, def, ctl);
+    },
   };
 }

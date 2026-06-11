@@ -101,6 +101,20 @@ Default-Werten für 10 Variationen). Delete löscht erst alle hängenden Kabel
 (tiefe Kopie!), Farbe, Name und Custom-Labels; neuen Index vergibt der Server,
 Antwort = `moduleAdded`, Kollisionen wie addModule, Undo = Löschen.
 
+**Param-Texte & Modes** (v1, Teil 11): Modul-Params tragen `text`
+(serverseitig formatierter Anzeigewert via g2lib ModParam enums/Formatter) in
+patchState und paramChanged. Module tragen `modes:[{id,name,value,min,max,
+enums?}]` (statische Modul-Params, EINE Wertemenge für alle Variationen).
+`setMode {area,module,mode,value}` setzt einen Mode (Wire: S_SET_MODE 0x2b via
+g2lib UserModuleData), Antwort = `modeChanged {area,module,mode,value,slot}`.
+setParam akzeptiert area "settings" (Patch-Settings = Pseudo-Module der
+Location 2; S_SET_PARAM 0x40 mit location=2). `setMorph {area,module,param,
+morph,range,variation}` (range -128…127, 0 = Zuweisung löschen; Wire:
+S_SET_MORPH_RANGE 0x43 [loc,module,param,morph,|range|,neg,variation]) ist im
+Undo-Verlauf, Antwort = `morphChanged`; patchState trägt `settings` (Gain/
+Glide/Bend/Vibrato/Arpeggiator/Misc) und `morphs` (8 Gruppen: dial/mode/label/
+assigns) — UI dafür folgt.
+
 **undoState** (v1): Broadcast nach jeder Verlaufs-Änderung (Mutation, undo,
 redo, Slot-/Patch-Wechsel): `{undoDepth, redoDepth, undoLabel?, redoLabel?}` —
 Labels sind die internen Aktionsnamen (addModule, copySelection, …). Derselbe

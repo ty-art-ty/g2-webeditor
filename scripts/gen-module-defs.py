@@ -47,8 +47,115 @@ def conns(controls: list[dict], klass: str) -> list[dict]:
     for c in found:
         if c["CodeRef"] != len(res):
             raise SystemExit(f"CodeRef-Lücke in {klass}: {found}")
-        res.append({"x": c["XPos"], "y": c["YPos"], "type": CONN_TYPES[c["Type"]]})
+        res.append({"x": c["XPos"], "y": c["YPos"], "type": CONN_TYPES[c["Type"]],
+                    "name": c["Control"]})
     return res
+
+
+def texts(c: dict) -> list[str]:
+    """Kommaliste ('a,b,' hat trailing-Komma) -> Labels."""
+    return [t for t in c.get("Text", "").split(",") if t != ""]
+
+
+def control(c: dict) -> dict | None:
+    """YAML-Control -> kompaktes JSON fürs Frontend (None = nicht exportieren)."""
+    cl = c["Class"]
+    out = {"cls": cl, "x": c["XPos"], "y": c["YPos"]}
+    if "CodeRef" in c:
+        out["p"] = c["CodeRef"]  # Param-Index (wie conn-Index bei Kabeln)
+    match cl:
+        case "Text":
+            out["t"] = str(c["Text"])
+        case "Line":
+            out["len"] = c["Length"]
+            out["vert"] = c["Orientation"] == "Vertical"
+            out["thick"] = c["Weight"] == "Thick"
+        case "Symbol":
+            out["sym"] = c["Type"]
+            out["w"], out["h"] = c["Width"], c["Height"]
+        case "Bitmap":
+            out["w"], out["h"] = c["Width"], c["Height"]
+            if "ImageFile" in c:
+                out["img"] = c["ImageFile"]
+            else:
+                out["t"] = str(c.get("CustomText") or c.get("Text") or "")
+        case "Knob":
+            out["kt"] = c["Type"]
+        case "ButtonText" | "TextEdit":
+            out["w"] = c["Width"]
+            out["push"] = c["Type"] == "Push"
+            if c.get("Images"):
+                out["imgs"], out["iw"] = c["Images"], c.get("ImageWidth", 0)
+            else:
+                out["t"] = str(c.get("Text", ""))
+        case "ButtonFlat":
+            out["w"] = c["Width"]
+            if c.get("Images"):
+                out["imgs"], out["iw"] = c["Images"], c.get("ImageWidth", 0)
+            else:
+                out["ts"] = texts(c)
+        case "ButtonRadio":
+            out["n"] = c["ButtonCount"]
+            out["bw"] = c["ButtonWidth"]
+            out["vert"] = c["Orientation"] == "Vertical"
+            if c.get("Images"):
+                out["imgs"], out["iw"] = c["Images"], c.get("ImageWidth", 0)
+            else:
+                out["ts"] = texts(c)
+        case "ButtonRadioEdit":
+            out["cols"], out["rows"] = c["ButtonColumns"], c["ButtonRows"]
+            out["ts"] = texts(c)
+        case "ButtonIncDec":
+            out["vert"] = c["Type"] == "Vertical"
+        case "TextField":
+            out["w"] = c["Width"]
+            out["p"] = c["MasterRef"]
+            # Param-Index als int, "S<n>" = Mode-Index n des Moduls (als String)
+            out["deps"] = [d if d.startswith("S") else int(d)
+                           for d in str(c.get("Dependencies", "")).split(",") if d != ""]
+            out["tf"] = c["TextFunc"]
+        case "PartSelector":
+            out["mode"] = True  # CodeRef ist ein Mode-Index (type.modes), kein Param
+            out["w"], out["h"] = c["Width"], c["Height"]
+            out["imgs"], out["iw"] = c.get("Images", []), c.get("ImageWidth", 0)
+        case "Led":
+            out["lt"] = c["Type"]
+        case "MiniVU":
+            out["vert"] = c["Orientation"] == "Vertical"
+        case "LevelShift":
+            pass  # nur cls/x/y/p
+        case "Graph":
+            out["w"], out["h"] = c["Width"], c["Height"]
+        case _:
+            return None
+    return out
+
+
+# Konstanten-Tabellen aus g2lib ParamConstants.java für die TextFunc-Formatter
+# im Frontend (NEGATIVE_INFINITY -> null, TS macht daraus -Infinity).
+TABLES = ["LFO_CLOCK_VALS", "DELAY_VALS", "PULSE_DELAY_RANGE",
+          "MIX_LEV_DB", "LEV_AMP_DB"]
+
+
+def parse_tables(java: str) -> dict:
+    out = {}
+    for name in TABLES:
+        m = re.search(name + r"\s*=\s*new\s+\w+\[\]\s*\{(.*?)};", java, re.DOTALL)
+        if not m:
+            raise SystemExit(f"Tabelle {name} nicht in ParamConstants.java gefunden")
+        vals = []
+        for tok in m.group(1).split(","):
+            tok = tok.strip()
+            if not tok:
+                continue
+            if tok == "Double.NEGATIVE_INFINITY":
+                vals.append(None)
+            elif tok.startswith('"'):
+                vals.append(tok.strip('"'))
+            else:
+                vals.append(float(tok) if "." in tok else int(tok))
+        out[name] = vals
+    return out
 
 
 def main(g2fx: Path) -> None:
@@ -64,11 +171,15 @@ def main(g2fx: Path) -> None:
         if t is None:
             missing.append(name)
             continue
+        controls = ui.get("Controls") or []
         defs[name] = {
             "ix": t["ix"],
             "height": ui.get("Height", t["height"]),
-            "inputs": conns(ui.get("Controls") or [], "Input"),
-            "outputs": conns(ui.get("Controls") or [], "Output"),
+            "inputs": conns(controls, "Input"),
+            "outputs": conns(controls, "Output"),
+            "controls": [j for c in controls
+                         if c["Class"] not in ("Input", "Output")
+                         and (j := control(c)) is not None],
         }
     if missing:
         raise SystemExit(f"YAML-Module ohne ModuleType: {missing}")
@@ -80,6 +191,12 @@ def main(g2fx: Path) -> None:
     OUT_JSON.write_text(json.dumps(defs, separators=(",", ":"), sort_keys=True) + "\n")
     print(f"{OUT_JSON.name}: {len(defs)} Module")
 
+    tables = parse_tables(
+        (g2fx / "src/main/java/org/g2fx/g2lib/model/ParamConstants.java").read_text())
+    out_tables = OUT_JSON.parent / "param-tables.json"
+    out_tables.write_text(json.dumps(tables, separators=(",", ":")) + "\n")
+    print(f"{out_tables.name}: {', '.join(f'{k}[{len(v)}]' for k, v in tables.items())}")
+
     src_icons = g2fx / "src/main/resources/org/g2fx/g2gui/module-icons"
     OUT_ICONS.mkdir(parents=True, exist_ok=True)
     n = 0
@@ -87,6 +204,16 @@ def main(g2fx: Path) -> None:
         shutil.copy2(png, OUT_ICONS / png.name)
         n += 1
     print(f"module-icons/: {n} Dateien")
+
+    # Control-Bilder (Bitmap/PartSelector/Button-Images) der Modulflächen
+    src_imgs = g2fx / "src/main/resources/org/g2fx/g2gui/img"
+    out_imgs = OUT_JSON.parent / "module-images"
+    out_imgs.mkdir(parents=True, exist_ok=True)
+    n = 0
+    for png in src_imgs.glob("*.png"):
+        shutil.copy2(png, out_imgs / png.name)
+        n += 1
+    print(f"module-images/: {n} Dateien")
 
 
 if __name__ == "__main__":

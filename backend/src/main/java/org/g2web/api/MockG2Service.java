@@ -112,6 +112,18 @@ public final class MockG2Service implements G2Service {
     }
 
     @Override
+    public void setMode(String area, int module, int mode, int value) {
+        emit(Map.of("type", "modeChanged", "area", area, "module", module,
+                "mode", mode, "value", value));
+    }
+
+    @Override
+    public void setMorph(String area, int module, int param, int morph, int range, int variation) {
+        emit(Map.of("type", "morphChanged", "variation", variation, "area", area,
+                "module", module, "param", param, "morph", morph, "range", range));
+    }
+
+    @Override
     public void renameModule(String area, int module, String name) {
         emit(Map.of("type", "moduleRenamed", "area", area, "module", module, "name", name));
     }
