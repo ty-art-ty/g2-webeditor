@@ -2,6 +2,8 @@
 
 **[English](#english) · [Deutsch](#deutsch)**
 
+![g2-webeditor](docs/screenshot.png)
+
 ---
 
 ## English
@@ -14,9 +16,15 @@ the editor is used from any browser on the LAN (PC, Mac, iPad).
 G2 ──USB──> ARM board: g2lib (Java) + Javalin bridge ──WS/HTTP──> browser SPA
 ```
 
-**Status:** Phases 1–3 complete and verified against real hardware — patch/bank browser,
-parameter editing (bidirectional, audible), variations, multi-client via WebSocket
-broadcast. Phase 4 (graphical patch editor with modules/cables) is up next.
+**Status:** Phases 1–4 largely complete, every step verified against real hardware.
+Graphical patch editor with the original Clavia module layout (knobs, buttons,
+formatted value displays), module faces rendered from g2fx UI data; cables
+(drag-to-connect), module add/delete/copy/move with collision push-down,
+multi-select (rubber band/shift-click) with block move/copy/delete including
+internal cables; server-side undo/redo with UI feedback; slots A–D, variations,
+patch settings (gain/glide/bend/vibrato/arpeggiator) and morph assignments;
+multi-client via WebSocket broadcast. Still open: performance mode, live
+LED/VU/graph feedback, patch persistence (.pch2 export).
 Details: `docs/phase*-ergebnis.md` (German).
 
 ### Layout
@@ -74,9 +82,16 @@ bedient wird vom Browser aus (PC, Mac, iPad).
 G2 ──USB──> ARM-Board: g2lib (Java) + Javalin-Bridge ──WS/HTTP──> Browser-SPA
 ```
 
-**Status:** Phasen 1–3 fertig und gegen echte Hardware verifiziert — Patch-/Bank-Browser,
-Param-Editing (bidirektional, hörbar), Variations, Multi-Client via WebSocket-Broadcast.
-Phase 4 (grafischer Patch-Editor mit Modulen/Kabeln) steht aus.
+**Status:** Phasen 1–4 weitgehend fertig, jeder Schritt gegen echte Hardware
+verifiziert. Grafischer Patch-Editor mit dem Original-Modul-Layout von Clavia
+(Knobs, Buttons, formatierte Wertanzeigen), Modulflächen aus den g2fx-UI-Daten
+gerendert; Kabel (Drag-to-Connect), Modul anlegen/löschen/kopieren/verschieben
+mit Kollisions-Push-Down, Multi-Select (Gummiband/Shift-Klick) mit
+Block-Verschieben/-Kopieren/-Löschen inkl. interner Kabel; serverseitiges
+Undo/Redo mit UI-Feedback; Slots A–D, Variations, Patch-Settings
+(Gain/Glide/Bend/Vibrato/Arpeggiator) und Morph-Zuweisungen; Multi-Client via
+WebSocket-Broadcast. Offen: Performance-Mode, LED/VU/Graph-Live-Anzeigen,
+Patch-Persistenz (.pch2-Export).
 Details: `docs/phase*-ergebnis.md`.
 
 ### Struktur

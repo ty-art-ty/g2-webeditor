@@ -30,6 +30,19 @@
   auf anderen Slots könnten die Anzeige verfälschen (selten; Backlog mit dem
   Slot-Feld nachrüsten).
 
+## Stolperstein (nachträglich gefunden + gefixt)
+
+- **Das GERÄT führt Morph-Zuweisungen je Gruppe separat**: Beim „Verschieben"
+  eines Params auf einen anderen Morph entfernte der Server die alte Zuweisung
+  nur im lokalen Modell — am G2 blieb sie bestehen. Lokal sah alles korrekt aus
+  (der Test prüfte gegen den Server-State); aufgeflogen erst nach
+  Service-Restart, der den WAHREN Gerätezustand neu einliest (Altlast
+  „Clock · Rate (-56)" im Settings-Panel). Fix: setMorphInternal löscht eine
+  bestehende Zuweisung auf einer ANDEREN Gruppe erst explizit (range 0) am
+  Gerät. Verifiziert via Zuweisen→Verschieben→Löschen→`systemctl restart`→
+  Gerätezustand sauber. Lehre: Mutations-Tests, die nur den Server-State
+  vergleichen, übersehen Divergenzen — kritische Pfade nach Restart gegenprüfen.
+
 ## Offen (→ Teil 13+)
 
 1. Performance-Mode.

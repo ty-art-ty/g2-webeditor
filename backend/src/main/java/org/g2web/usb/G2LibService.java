@@ -352,6 +352,16 @@ public final class G2LibService implements G2Service {
         if (morph < 0 || morph > 7) throw new IllegalArgumentException("Morph 0–7: " + morph);
         if (range < -128 || range > 127) throw new IllegalArgumentException(
                 "Range -128–127: " + range);
+        // Das GERÄT führt Zuweisungen je Morph-Gruppe separat — beim Verschieben
+        // auf eine andere Gruppe die alte erst explizit löschen (range 0), sonst
+        // bleibt sie am G2 bestehen (lokal sah alles richtig aus; aufgefallen
+        // nach Service-Restart, der den wahren Gerätezustand neu einliest).
+        var existing = patch.getMorphParams().getMorphParam(variation, areaId, module, param);
+        if (existing != null && existing.morph() != morph && range != 0) {
+            patch.getSlotSender().sendSlotCommand("set-morph",
+                    0x43, areaId.ordinal(), module, param,
+                    existing.morph(), 0, 0, variation);
+        }
         patch.getSlotSender().sendSlotCommand("set-morph",
                 0x43 /* S_SET_MORPH_RANGE */, areaId.ordinal(), module, param,
                 morph, Math.abs(range), range < 0 ? 1 : 0, variation);
