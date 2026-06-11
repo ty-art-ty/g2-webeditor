@@ -49,6 +49,9 @@ TypeScript-Spiegel: `frontend/src/protocol.ts` — beide synchron halten.
   "name": "OscB1", "row": 35, "col": 0, "color": 0, "params": [ /* … */ ] } }
 { "type": "moduleDeleted", "area": "va", "module": 33 }
 
+{ "type": "moduleRenamed", "area": "va", "module": 1, "name": "Osc1" }
+{ "type": "moduleColorChanged", "area": "va", "module": 1, "color": 10 }
+
 // G2 per USB verbunden/getrennt
 { "type": "connection", "connected": true }
 ```
@@ -68,6 +71,8 @@ daher in alle modulbezogenen Messages. Fehlt es bei `setParam`, nimmt der Server
   "to": {"module":2,"conn":0}, "fromOutput": true }
 { "type": "addModule", "area": "va", "typeName": "OscB", "col": 0, "row": 35 }
 { "type": "deleteModule", "area": "va", "module": 33 }
+{ "type": "renameModule", "area": "va", "module": 1, "name": "Osc1" }
+{ "type": "setModuleColor", "area": "va", "module": 1, "color": 10 }
 ```
 
 **moveModule** (v1, erster Mutations-Befehl): Wire-Format am G2 ist
@@ -81,6 +86,15 @@ Referenz-Editoren: `S_ADD_MODULE` 0x30 `[30, typeId, loc, index, col, row, 0,
 uprate, isLed, modes…, name]` + Cable-/Param-/Label-/Name-Sektionen mit
 Default-Werten für 10 Variationen). Delete löscht erst alle hängenden Kabel
 (je ein cableDeleted), dann `S_DEL_MODULE` 0x32 `[32, loc, index]`.
+
+**renameModule/setModuleColor** (v1): Name max 16 ASCII-Zeichen.
+Wire-Formate: `S_SET_MODULE_LABEL` 0x33 `[33, loc, index, name\0]`,
+`S_SET_MODULE_COLOR` 0x31 `[31, loc, index, color]` (color 0–24).
+
+**Kollisionen**: moveModule/addModule lösen Überlappungen serverseitig auf
+(Algorithmus wie g2gui `MoveableModule.resolveCollisions`, nur Spalte des
+bewegten/neuen Moduls): verdrängte Module kaskadieren nach unten, je ein
+eigenes `moduleMoved`-Broadcast (+ S_MOV_MODULE ans Gerät).
 
 **addCable/deleteCable** (v1): `to` ist immer ein Input; `fromOutput=false` = In-zu-In-Kabel.
 Die Kabelfarbe bestimmt der Server aus dem Quell-Connector (g2lib ModuleType-Ports,

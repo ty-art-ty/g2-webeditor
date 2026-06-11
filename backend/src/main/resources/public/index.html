@@ -79,13 +79,26 @@
     #params .module h3 { margin: 0 0 .45rem; font-size: .9rem; display: flex; justify-content: space-between; gap: .4rem; align-items: center; }
     #params .module h3 .type { color: var(--dim); font-weight: normal; font-size: .8rem; }
     #params .module h3 img { image-rendering: pixelated; }
+    #params .module h3 .modname {
+      flex: 1; min-width: 0; padding: .15rem .35rem; border: 1px solid transparent;
+      border-radius: 3px; background: none; color: var(--text); font: inherit;
+    }
+    #params .module h3 .modname:hover, #params .module h3 .modname:focus {
+      border-color: var(--border); outline: none; background: #16171b;
+    }
+    #params .modcolors { display: flex; flex-wrap: wrap; gap: 3px; margin: 0 0 .6rem; }
+    #params .modcolors button {
+      width: 16px; height: 16px; border: 1px solid #16171b; border-radius: 3px;
+      cursor: pointer; padding: 0;
+    }
+    #params .modcolors button.active { border: 2px solid var(--accent); }
     #params .hint { color: var(--dim); font-size: .85rem; }
     .param { display: grid; grid-template-columns: 6.5rem 1fr 2.6rem; gap: .5rem; align-items: center; font-size: .8rem; }
     .param label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--dim); }
     .param span { text-align: right; font-variant-numeric: tabular-nums; }
     input[type=range] { width: 100%; accent-color: var(--accent); }
   </style>
-  <script type="module" crossorigin src="/assets/index-BsHqLNVB.js"></script>
+  <script type="module" crossorigin src="/assets/index-Deh98PAG.js"></script>
 </head>
 <body>
   <header>

@@ -59,6 +59,12 @@ public interface G2Service {
      */
     void deleteModule(String area, int module);
 
+    /** Modul umbenennen (max 16 ASCII-Zeichen). Broadcastet "moduleRenamed". */
+    void renameModule(String area, int module, String name);
+
+    /** Modulfarbe setzen (0–24, Index in MODULE_COLORS). Broadcastet "moduleColorChanged". */
+    void setModuleColor(String area, int module, int color);
+
     /** Events vom G2 (Param-Änderungen am Gerät, Patch-Wechsel, Connect/Disconnect). */
     void onEvent(Consumer<Map<String, Object>> listener);
 }

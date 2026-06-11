@@ -1,7 +1,7 @@
 import type {
   Area, Bank, Cable, ClientMessage, Module, ModuleDefs, PatchState, ServerMessage,
 } from './protocol';
-import { type AreaView, moduleIcon, renderArea } from './graph';
+import { type AreaView, MODULE_COLORS, moduleIcon, renderArea } from './graph';
 
 const $ = (id: string) => document.getElementById(id)!;
 const connEl = $('conn');
@@ -93,6 +93,22 @@ function handle(msg: ServerMessage) {
         renderPatch(currentPatch);
       }
       break;
+    case 'moduleRenamed': {
+      const mod = findModule(msg.area, msg.module);
+      if (mod && currentPatch) {
+        mod.name = msg.name;
+        renderPatch(currentPatch);
+      }
+      break;
+    }
+    case 'moduleColorChanged': {
+      const mod = findModule(msg.area, msg.module);
+      if (mod && currentPatch) {
+        mod.color = msg.color;
+        renderPatch(currentPatch);
+      }
+      break;
+    }
     case 'moduleDeleted':
       if (currentPatch) {
         currentPatch.modules = currentPatch.modules.filter(
@@ -210,9 +226,40 @@ function renderParamPanel(m: Module) {
   const icon = moduleIcon(moduleDefs, m.typeName);
   const h = document.createElement('h3');
   h.innerHTML = `${icon ? `<img src="${icon}" width="22" height="22" alt="">` : ''}
-    <span>${esc(m.name) || '#' + m.id}</span>
     <span class="type">${esc(m.typeName)} #${m.id}</span>`;
+  // Name editierbar (Enter/Blur sendet renameModule, max 16 Zeichen wie der G2)
+  const nameInput = document.createElement('input');
+  nameInput.className = 'modname';
+  nameInput.maxLength = 16;
+  nameInput.value = m.name || '';
+  nameInput.placeholder = '#' + m.id;
+  const rename = () => {
+    const name = nameInput.value.trim();
+    if (name && name !== m.name) {
+      send({ type: 'renameModule', area: m.area, module: m.id, name });
+    } else {
+      nameInput.value = m.name || '';
+    }
+  };
+  nameInput.onkeydown = (ev) => {
+    if (ev.key === 'Enter') nameInput.blur();
+    ev.stopPropagation(); // Entf im Input darf nicht das Modul löschen
+  };
+  nameInput.onblur = rename;
+  h.insertBefore(nameInput, h.querySelector('.type'));
   div.appendChild(h);
+  // Farbwähler (25 G2-Modulfarben)
+  const colors = document.createElement('div');
+  colors.className = 'modcolors';
+  MODULE_COLORS.forEach((hex, ix) => {
+    const b = document.createElement('button');
+    b.style.background = hex;
+    b.title = String(ix);
+    b.className = ix === m.color ? 'active' : '';
+    b.onclick = () => send({ type: 'setModuleColor', area: m.area, module: m.id, color: ix });
+    colors.appendChild(b);
+  });
+  div.appendChild(colors);
   if (!m.params.length) {
     const p = document.createElement('div');
     p.className = 'hint';

@@ -45,9 +45,12 @@ export interface CableDeleted {
 }
 export interface ModuleAdded { type: 'moduleAdded'; module: Module; }
 export interface ModuleDeleted { type: 'moduleDeleted'; area: Area; module: number; }
+export interface ModuleRenamed { type: 'moduleRenamed'; area: Area; module: number; name: string; }
+export interface ModuleColorChanged { type: 'moduleColorChanged'; area: Area; module: number; color: number; }
 export type ServerMessage =
   PatchState | ParamChanged | VariationChanged | Connection | ModuleMoved |
-  CableAdded | CableDeleted | ModuleAdded | ModuleDeleted;
+  CableAdded | CableDeleted | ModuleAdded | ModuleDeleted |
+  ModuleRenamed | ModuleColorChanged;
 
 export interface SetParam {
   type: 'setParam'; area: Area; module: number; param: number; value: number; variation: number;
@@ -64,9 +67,11 @@ export interface DeleteCable {
 }
 export interface AddModule { type: 'addModule'; area: Area; typeName: string; col: number; row: number; }
 export interface DeleteModule { type: 'deleteModule'; area: Area; module: number; }
+export interface RenameModule { type: 'renameModule'; area: Area; module: number; name: string; }
+export interface SetModuleColor { type: 'setModuleColor'; area: Area; module: number; color: number; }
 export type ClientMessage =
   SetParam | SelectVariation | MoveModule | AddCable | DeleteCable |
-  AddModule | DeleteModule;
+  AddModule | DeleteModule | RenameModule | SetModuleColor;
 
 // REST: /api/banks
 export interface BankEntry { slot: number; name: string; category?: number; }

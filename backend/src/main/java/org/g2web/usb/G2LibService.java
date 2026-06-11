@@ -51,6 +51,8 @@ public final class G2LibService implements G2Service {
     private static final int S_DEL_CABLE = 0x51;
     /** S_DEL_MODULE — fehlt ebenfalls; das Add übernimmt g2lib PatchArea.createModules. */
     private static final int S_DEL_MODULE = 0x32;
+    private static final int S_SET_MODULE_COLOR = 0x31;
+    private static final int S_SET_MODULE_LABEL = 0x33;
 
     private final Devices devices;
     private final List<Consumer<Map<String, Object>>> listeners = new CopyOnWriteArrayList<>();
@@ -212,19 +214,78 @@ public final class G2LibService implements G2Service {
             // NICHT (gleiche Falle wie variation, siehe docs/phase3-ergebnis.md) …
             m.getUserModuleData().column().set(col);
             m.getUserModuleData().row().set(row);
-            // … daher explizit als Slot-Request ans Gerät. Wire-Format wie die
+            // Kollisionen auflösen (kann auch das bewegte Modul selbst verschieben,
+            // wenn es mitten in einem anderen landet) …
+            List<PatchModule> pushed = resolveCollisions(patch.getArea(areaId), module);
+            // … dann explizit als Slot-Request ans Gerät. Wire-Format wie die
             // Referenz-Editoren (BVerhue S_MOV_MODULE=0x34, G2-Edit usbComms.c):
             //   [01, 0x28+slot, version, 0x34, location(FX=0/VA=1), index, col, row]
             // AreaId-Ordinals (Fx=0, Voice=1) entsprechen der Protokoll-Location.
-            patch.getSlotSender().sendSlotRequest("move-module",
-                    S_MOV_MODULE, areaId.ordinal(), module, col, row);
+            // Kein g2lib-Listener auf coords -> selbst broadcasten. Optimistisch:
+            // G2-Antwort (0x7f OK / 0x7e Error) läuft async über den Dispatcher und
+            // landet nur im Log — bei Verdacht journalctl prüfen.
+            sendMoveAndEmit(patch, areaId, area, m);
+            for (PatchModule c : pushed) {
+                if (c.getIndex() != module) sendMoveAndEmit(patch, areaId, area, c);
+            }
         });
-        // Kein g2lib-Listener auf coords -> selbst broadcasten. Optimistisch:
-        // G2-Antwort (0x7f OK / 0x7e Error) läuft async über den Dispatcher und
-        // landet nur im Log — bei Verdacht journalctl prüfen (vgl. Variation-Lehrstück).
-        emit(Map.of("type", "moduleMoved", "area", area,
-                "module", module, "col", col, "row", row));
     }
+
+    /** S_MOV_MODULE für die aktuellen (lokalen) Koordinaten senden + moduleMoved emitten. */
+    private void sendMoveAndEmit(Patch patch, AreaId areaId, String area, PatchModule m)
+            throws Exception {
+        int col = m.getUserModuleData().column().get();
+        int row = m.getUserModuleData().row().get();
+        patch.getSlotSender().sendSlotRequest("move-module",
+                S_MOV_MODULE, areaId.ordinal(), m.getIndex(), col, row);
+        emit(Map.of("type", "moduleMoved", "area", area,
+                "module", m.getIndex(), "col", col, "row", row));
+    }
+
+    /**
+     * Überlappungen in der Spalte des selektierten (bewegten/neuen) Moduls auflösen —
+     * Algorithmus wie g2gui {@code MoveableModule.resolveCollisions}: liegt der obere
+     * Rand des selektierten Moduls mitten in einem anderen, rutscht es unter dieses;
+     * alle weiteren nicht-selektierten darunter kaskadieren nach unten. Wendet die
+     * Änderungen nur lokal an und liefert die geänderten Module (Senden macht der Aufrufer).
+     */
+    private static List<PatchModule> resolveCollisions(PatchArea pa, int selectedIndex) {
+        List<PatchModule> changed = new ArrayList<>();
+        Map<Integer, List<PatchModule>> byCol = new java.util.TreeMap<>();
+        for (PatchModule m : pa.getModules()) {
+            byCol.computeIfAbsent(m.getUserModuleData().column().get(),
+                    k -> new ArrayList<>()).add(m);
+        }
+        for (List<PatchModule> colMods : byCol.values()) {
+            colMods.sort(java.util.Comparator.comparingInt(G2LibService::rowOf));
+            PatchModule sel = colMods.stream()
+                    .filter(m -> m.getIndex() == selectedIndex).findFirst().orElse(null);
+            if (sel == null) continue; // andere Spalten nicht anfassen (wie g2gui)
+            List<PatchModule> unselecteds = new ArrayList<>(colMods);
+            unselecteds.remove(sel);
+            unselecteds.removeIf(m -> rowOf(m) + heightOf(m) <= rowOf(sel)); // oberhalb
+            if (unselecteds.isEmpty()) continue;
+            PatchModule topUnsel = unselecteds.get(0);
+            if (rowOf(topUnsel) < rowOf(sel)) {
+                // Selektiertes liegt im Bauch des oberen Moduls -> direkt darunter
+                unselecteds.remove(0);
+                sel.getUserModuleData().row().set(rowOf(topUnsel) + heightOf(topUnsel));
+                changed.add(sel);
+            }
+            PatchModule top = sel;
+            for (PatchModule m : unselecteds) {
+                if (rowOf(top) + heightOf(top) <= rowOf(m)) break;
+                m.getUserModuleData().row().set(rowOf(top) + heightOf(top));
+                changed.add(m);
+                top = m;
+            }
+        }
+        return changed;
+    }
+
+    private static int rowOf(PatchModule m) { return m.getUserModuleData().row().get(); }
+
+    private static int heightOf(PatchModule m) { return m.getUserModuleData().getType().height; }
 
     @Override
     public void addCable(String area, int fromModule, int fromConn, boolean fromOutput,
@@ -311,7 +372,57 @@ public final class G2LibService implements G2Service {
                             new org.g2fx.g2lib.state.Coords(col, row)));
             PatchModule m = created.get(0);
             attachModuleParamListeners(patch.getSlot().name(), area, m);
+            // Kollisionen auflösen; das neue Modul kann dabei selbst verrutschen —
+            // dann Korrektur als Move nachsenden (das Add ging mit Wunsch-Koords raus).
+            // moduleAdded kommt zuletzt und trägt bereits die finalen Koordinaten.
+            List<PatchModule> pushed = resolveCollisions(pa, index);
+            for (PatchModule c : pushed) {
+                if (c.getIndex() == index) {
+                    patch.getSlotSender().sendSlotRequest("move-module", S_MOV_MODULE,
+                            areaId.ordinal(), index,
+                            c.getUserModuleData().column().get(),
+                            c.getUserModuleData().row().get());
+                } else {
+                    sendMoveAndEmit(patch, areaId, area, c);
+                }
+            }
             emit(Map.of("type", "moduleAdded", "module", moduleOf(m, area)));
+        });
+    }
+
+    @Override
+    public void renameModule(String area, int module, String name) {
+        String n = name.length() > 16 ? name.substring(0, 16) : name;
+        devices.runWithCurrentPerf(p -> {
+            AreaId areaId = "fx".equals(area) ? AreaId.Fx : AreaId.Voice;
+            Patch patch = p.getSelectedPatch();
+            PatchModule m = patch.getArea(areaId).getModule(module);
+            m.name().set(n); // lokal — stringFieldProperty sendet nicht
+            // Wire-Format (BVerhue AddSetModuleLabelMessage):
+            //   [0x33, location, index, name als Clavia-String (\0-terminiert wenn <16)]
+            byte[] nb = n.getBytes(java.nio.charset.StandardCharsets.US_ASCII);
+            byte[] msg = new byte[3 + nb.length + (nb.length < 16 ? 1 : 0)];
+            msg[0] = (byte) S_SET_MODULE_LABEL;
+            msg[1] = (byte) areaId.ordinal();
+            msg[2] = (byte) module;
+            System.arraycopy(nb, 0, msg, 3, nb.length);
+            patch.getSlotSender().sendSlotRequest("rename-module", msg);
+            emit(Map.of("type", "moduleRenamed", "area", area, "module", module, "name", n));
+        });
+    }
+
+    @Override
+    public void setModuleColor(String area, int module, int color) {
+        devices.runWithCurrentPerf(p -> {
+            AreaId areaId = "fx".equals(area) ? AreaId.Fx : AreaId.Voice;
+            Patch patch = p.getSelectedPatch();
+            PatchModule m = patch.getArea(areaId).getModule(module);
+            m.getUserModuleData().color().set(color); // lokal
+            // Wire-Format (BVerhue AddSetModuleColorMessage): [0x31, location, index, color]
+            patch.getSlotSender().sendSlotRequest("set-module-color",
+                    S_SET_MODULE_COLOR, areaId.ordinal(), module, color);
+            emit(Map.of("type", "moduleColorChanged",
+                    "area", area, "module", module, "color", color));
         });
     }
 

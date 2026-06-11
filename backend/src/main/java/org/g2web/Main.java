@@ -89,6 +89,14 @@ public final class Main {
                     case "deleteModule" -> g2.deleteModule(
                             msg.has("area") ? msg.get("area").asText() : "va",
                             msg.get("module").asInt());
+                    case "renameModule" -> g2.renameModule(
+                            msg.has("area") ? msg.get("area").asText() : "va",
+                            msg.get("module").asInt(),
+                            msg.get("name").asText());
+                    case "setModuleColor" -> g2.setModuleColor(
+                            msg.has("area") ? msg.get("area").asText() : "va",
+                            msg.get("module").asInt(),
+                            msg.get("color").asInt());
                     default -> { /* unbekannte Message ignorieren, siehe docs/protocol.md */ }
                 }
             });

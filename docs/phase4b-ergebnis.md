@@ -1,3 +1,50 @@
+# Phase 4b — Ergebnis Teil 4: Kollisionen, renameModule, setModuleColor (2026-06-11)
+
+**Status: ✅ Kollisions-Push-Down bei Move/Add, Modul-Rename und -Farbe fertig,
+am echten G2 verifiziert.**
+
+## Verifiziert (Skript + Mac-Chrome per IP gegen echten G2)
+
+- `scripts/ws-edit-test.py`: zwei OscB anlegen, B exakt auf A schieben →
+  `moduleMoved` für B (Zielposition) und A (base+5 = unter B gepusht),
+  Rename auf „KollideB" + Farbe 5 greifen im Server-State, Aufräumen stellt
+  den Ausgangszustand her — Journal ohne 0x7e/Exceptions
+- Browser: Param-Panel zeigt Name-Input + 25 Farb-Swatches; Rename per Tippen
+  + Enter aktualisiert SVG-Label live, Swatch-Klick färbt um (beides am
+  Modul va/1 getestet und auf Original zurückgesetzt)
+
+## Umsetzung
+
+- **Kollisionen** (`G2LibService.resolveCollisions`, Algorithmus 1:1 wie g2gui
+  `MoveableModule.resolveCollisions`, Tests in g2fx `ModuleMoveTest`): nur die
+  Spalte des bewegten/neuen Moduls; liegt dessen oberer Rand im Bauch eines
+  anderen Moduls, rutscht es unter dieses (selInc), alle weiteren kaskadieren
+  nach unten. Lokal anwenden → pro geändertem Modul S_MOV_MODULE senden +
+  `moduleMoved` emitten (`sendMoveAndEmit`). Bei addModule geht das Add mit den
+  Wunsch-Koordinaten raus; verrutscht das neue Modul selbst, folgt ein
+  Korrektur-Move, und `moduleAdded` (kommt zuletzt) trägt die finalen Koords.
+- **Rename**: `S_SET_MODULE_LABEL 0x33` `[33, loc, index, name\0]` (Clavia-String,
+  \0 nur wenn <16 Zeichen); `m.name().set()` ist wieder nur lokal
+  (stringFieldProperty-Falle). Server kappt auf 16 ASCII-Zeichen.
+- **Farbe**: `S_SET_MODULE_COLOR 0x31` `[31, loc, index, color]`, color 0–24
+  (MODULE_COLORS-Index), `umd.color().set()` lokal.
+- **Frontend**: Im Param-Panel Name als Input (Enter/Blur sendet, Entf im Input
+  löscht dank activeElement-Guard nichts), Farbreihe mit 25 Swatches;
+  `moduleRenamed`/`moduleColorChanged` aktualisieren State + Re-Render.
+
+## Stolpersteine
+
+- Koordinaten-Klicks auf die kleinen Swatches (16 px) gehen nach Panel-Re-Render
+  leicht daneben — fürs Testen Button direkt klicken; für Nutzer irrelevant.
+
+## Offen (→ Teil 5+)
+
+1. Multi-Select-Drag, Copy/Paste, Undo.
+2. Kabel-Hover-Feedback (Hit-Pfade kreuzender Kabel überlappen).
+3. Morph-/Patch-Settings, Slot-Handling A–D, Performance-Mode.
+
+---
+
 # Phase 4b — Ergebnis Teil 3: addModule/deleteModule (2026-06-11)
 
 **Status: ✅ Modul anlegen („+ Modul" pro Area) und löschen (Auswahl + Entf,

@@ -7,7 +7,7 @@ export const GRID_X = 255;
 export const GRID_Y = 15;
 
 // g2lib ParamConstants.MODULE_COLORS (Index = color-Feld des Moduls)
-const MODULE_COLORS = [
+export const MODULE_COLORS = [
   '#EEEEEE', '#BABACC', '#BACCBA', '#CCBAB0', '#AACBD0', '#D4A074',
   '#7A77E5', '#BDC17B', '#80B982', '#48D1E7', '#62D193', '#7DC7DE',
   '#C29A8F', '#817DBA', '#8D8DCA', '#A5D1DE', '#9CCF94', '#C7D669',
