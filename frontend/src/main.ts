@@ -87,6 +87,26 @@ function handle(msg: ServerMessage) {
         renderPatch(currentPatch);
       }
       break;
+    case 'moduleAdded':
+      if (currentPatch && !findModule(msg.module.area, msg.module.id)) {
+        currentPatch.modules.push(msg.module);
+        renderPatch(currentPatch);
+      }
+      break;
+    case 'moduleDeleted':
+      if (currentPatch) {
+        currentPatch.modules = currentPatch.modules.filter(
+          (m) => !(m.area === msg.area && m.id === msg.module));
+        // Server löscht hängende Kabel mit eigenen cableDeleted-Events; zur
+        // Sicherheit lokal ebenfalls aufräumen (Events können vorausgehen).
+        currentPatch.cables = currentPatch.cables.filter((c) => !(c.area === msg.area
+          && (c.from.module === msg.module || c.to.module === msg.module)));
+        if (selected && selected.area === msg.area && selected.id === msg.module) {
+          selected = null;
+        }
+        renderPatch(currentPatch);
+      }
+      break;
     case 'variationChanged':
       currentVariation = msg.variation;
       renderVariations();
@@ -108,15 +128,20 @@ const findCable = (
     && c.from.module === from.module && c.from.conn === from.conn
     && c.to.module === to.module && c.to.conn === to.conn);
 
-// Entf/Backspace löscht das ausgewählte Kabel (nicht aus Eingabefeldern heraus)
+// Entf/Backspace löscht das ausgewählte Kabel, sonst das ausgewählte Modul
+// (nicht aus Eingabefeldern heraus)
 document.addEventListener('keydown', (ev) => {
   if (ev.key !== 'Delete' && ev.key !== 'Backspace') return;
   if (document.activeElement instanceof HTMLInputElement) return;
-  if (!selectedCable) return;
-  send({ type: 'deleteCable', area: selectedCable.area,
-    from: selectedCable.from, to: selectedCable.to,
-    fromOutput: selectedCable.fromOutput ?? true });
-  selectedCable = null; // Bestätigung kommt als cableDeleted + Re-Render
+  if (selectedCable) {
+    send({ type: 'deleteCable', area: selectedCable.area,
+      from: selectedCable.from, to: selectedCable.to,
+      fromOutput: selectedCable.fromOutput ?? true });
+    selectedCable = null; // Bestätigung kommt als cableDeleted + Re-Render
+  } else if (selected) {
+    send({ type: 'deleteModule', area: selected.area, module: selected.id });
+    // Bestätigung kommt als cableDeleted* + moduleDeleted + Re-Render
+  }
 });
 
 // ---------------------------------------------------------------- Rendering
@@ -134,13 +159,15 @@ function renderPatch(p: PatchState) {
   areaViews.clear();
   for (const area of ['va', 'fx'] as Area[]) {
     const mods = p.modules.filter((m) => m.area === area);
-    if (!mods.length) continue;
 
+    // Titel (mit "+ Modul") auch für leere Areas — sonst käme man dort nie rein
     const title = document.createElement('div');
     title.className = 'area-title';
     title.innerHTML = `<span>${area === 'va' ? 'Voice Area' : 'FX Area'}</span>`;
+    title.appendChild(addModuleControl(area));
     title.appendChild(zoomControls());
     patchEl.appendChild(title);
+    if (!mods.length) continue;
 
     const view = renderArea(area, mods, p.cables ?? [], moduleDefs,
       (m) => selectModule(m),
@@ -209,6 +236,32 @@ function renderParamPanel(m: Module) {
     div.appendChild(row);
   }
   paramsBodyEl.appendChild(div);
+}
+
+/** "+ Modul": Typ aus module-defs wählen (datalist) und unten in der Area anlegen. */
+function addModuleControl(area: Area): HTMLElement {
+  const div = document.createElement('div');
+  div.className = 'addmod';
+  const input = document.createElement('input');
+  input.setAttribute('list', 'modtypes');
+  input.placeholder = '+ Modul…';
+  input.title = 'Modultyp eintippen/wählen, Enter oder + drückt an';
+  const add = () => {
+    const typeName = input.value.trim();
+    if (!moduleDefs[typeName] || !currentPatch) return;
+    // Platzierung: unterhalb des untersten Moduls der Area, Spalte 0
+    const row = currentPatch.modules
+      .filter((m) => m.area === area)
+      .reduce((r, m) => Math.max(r, m.row + (moduleDefs[m.typeName]?.height ?? 2)), 0);
+    send({ type: 'addModule', area, typeName, col: 0, row });
+    input.value = ''; // Modul kommt als moduleAdded + Re-Render zurück
+  };
+  input.onkeydown = (ev) => { if (ev.key === 'Enter') add(); };
+  const btn = document.createElement('button');
+  btn.textContent = '＋';
+  btn.onclick = add;
+  div.append(input, btn);
+  return div;
 }
 
 function zoomControls(): HTMLElement {
@@ -306,6 +359,15 @@ function esc(s: string): string {
 async function init() {
   try {
     moduleDefs = await (await fetch('/module-defs.json')).json();
+    // Datalist für die "+ Modul"-Controls (ein globales Element reicht)
+    const dl = document.createElement('datalist');
+    dl.id = 'modtypes';
+    for (const name of Object.keys(moduleDefs).sort()) {
+      const opt = document.createElement('option');
+      opt.value = name;
+      dl.appendChild(opt);
+    }
+    document.body.appendChild(dl);
   } catch {
     console.warn('module-defs.json nicht ladbar — Module ohne Geometrie');
   }

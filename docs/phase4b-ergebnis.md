@@ -1,3 +1,56 @@
+# Phase 4b — Ergebnis Teil 3: addModule/deleteModule (2026-06-11)
+
+**Status: ✅ Modul anlegen („+ Modul" pro Area) und löschen (Auswahl + Entf,
+inkl. Kabel-Kaskade) fertig, am echten G2 verifiziert.**
+
+## Verifiziert (Skript + Mac-Chrome per IP gegen echten G2, Patch „Basslines FM4")
+
+- `scripts/ws-module-test.py`: OscB anlegen → `moduleAdded` (id=33, Name „OscB1",
+  11 Params mit Defaults), löschen → `moduleDeleted`, Endzustand = Ausgangszustand
+- Browser: „+ Modul"-Feld (Datalist, 166 Typen) legt OscB1 an; Kabel von dessen
+  Output auf einen fremden Input gezogen; Modul ausgewählt + Entf → Kabel-Kaskade
+  (`cableDeleted` + `moduleDeleted`), Patch danach exakt im Ausgangszustand
+  (36 Module / 49 Kabel) — Journal ohne 0x7e/Exceptions
+
+## Umsetzung
+
+- **Add über g2lib**: `PatchArea.createModules(ModuleDelta)` existiert upstream
+  (g2gui-Anteil) und baut die komplette Add-Message wie BVerhue
+  `AddNewModuleMessage`: `S_ADD_MODULE 0x30` `[30, typeId, loc, index, col, row,
+  0, uprate, isLed, modes…, name]` + Cable-/Param-/Label-/Name-Sektionen mit
+  Defaults für 10 Variationen — sendet als Slot-Request und pflegt den lokalen
+  State. (G2-Edit sendet nur die nackte 0x30-Message; wir nehmen die volle Form.)
+  `ModuleDelta.addNewModule(area, type, index, name, color, coords)` liefert den
+  Datensatz; Index = max+1 pro Area, Name = shortName + laufende Nr. (BVerhue-
+  Konventionen). Für neue Module Param-Listener nachziehen
+  (`attachModuleParamListeners`, aus attachPatchListeners extrahiert).
+- **Delete selbst gebaut** (fehlt in g2lib): erst hängende Kabel löschen wie
+  G2-Edit `action_delete_module` (je `S_DEL_CABLE` + cableDeleted-Broadcast),
+  dann `S_DEL_MODULE 0x32` `[32, loc, index]`; lokal `getModules().remove(m)`
+  (Collection-View der TreeMap) und `moduleDeleted` emitten.
+- **Frontend**: „+ Modul"-Eingabe (datalist aus module-defs.json) pro Area-Titel,
+  auch für leere Areas (sonst käme man in eine leere FX-Area nie rein);
+  Platzierung unten (max row + height), col 0. Entf löscht jetzt auch das
+  ausgewählte Modul (Kabel-Auswahl hat Vorrang). `moduleAdded` liefert das
+  komplette Modul-Objekt, `moduleDeleted` räumt lokal Modul + Kabel auf.
+
+## Stolpersteine
+
+- Claude-in-Chrome erzeugt auch bei `left_click` keine Pointer-Events —
+  Modul-Auswahl (pointerdown/up) damit nicht testbar, `click`-Handler (Kabel)
+  schon. Synthetische PointerEvents wie in Teil 2.
+- Der Test lief gegen einen anderen Patch („Basslines FM4" statt FM-clang-v) —
+  Slot-Inhalt hatte sich zwischenzeitlich geändert; für die Tests egal, da
+  Vorher/Nachher-Vergleich gegen den Live-State läuft.
+
+## Offen (→ Teil 4+)
+
+1. Kollisionserkennung beim Drop/Add (g2gui `resolveCollisions`).
+2. Modul-Rename/-Farbe, Multi-Select-Drag, Copy/Paste, Undo.
+3. Kabel-Hover-Feedback (Hit-Pfade kreuzender Kabel überlappen).
+
+---
+
 # Phase 4b — Ergebnis Teil 2: addCable/deleteCable (2026-06-11)
 
 **Status: ✅ Kabel anlegen (Port-Drag) und löschen (Klick + Entf) fertig, am echten G2 verifiziert.**

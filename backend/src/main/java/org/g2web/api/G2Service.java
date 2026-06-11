@@ -46,6 +46,19 @@ public interface G2Service {
     void deleteCable(String area, int fromModule, int fromConn, boolean fromOutput,
                      int toModule, int toConn);
 
+    /**
+     * Neues Modul anlegen. typeName = shortName wie in module-defs.json/patchState.
+     * Index und Name (typeName + laufende Nr.) vergibt der Server.
+     * Broadcastet danach "moduleAdded" mit dem vollständigen Modul-Objekt.
+     */
+    void addModule(String area, String typeName, int col, int row);
+
+    /**
+     * Modul löschen. Hängende Kabel werden zuerst entfernt (je ein "cableDeleted"),
+     * danach kommt "moduleDeleted".
+     */
+    void deleteModule(String area, int module);
+
     /** Events vom G2 (Param-Änderungen am Gerät, Patch-Wechsel, Connect/Disconnect). */
     void onEvent(Consumer<Map<String, Object>> listener);
 }

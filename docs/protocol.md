@@ -43,6 +43,12 @@ TypeScript-Spiegel: `frontend/src/protocol.ts` — beide synchron halten.
 { "type": "cableDeleted", "area": "va", "from": {"module":1,"conn":0},
   "to": {"module":2,"conn":0} }
 
+// Modul angelegt (module = vollständiges Objekt wie im patchState) / gelöscht.
+// Beim Löschen kommen vorab cableDeleted-Events für alle hängenden Kabel.
+{ "type": "moduleAdded", "module": { "id": 33, "area": "va", "typeName": "OscB",
+  "name": "OscB1", "row": 35, "col": 0, "color": 0, "params": [ /* … */ ] } }
+{ "type": "moduleDeleted", "area": "va", "module": 33 }
+
 // G2 per USB verbunden/getrennt
 { "type": "connection", "connected": true }
 ```
@@ -60,11 +66,21 @@ daher in alle modulbezogenen Messages. Fehlt es bei `setParam`, nimmt der Server
   "to": {"module":2,"conn":0}, "fromOutput": true }
 { "type": "deleteCable", "area": "va", "from": {"module":1,"conn":0},
   "to": {"module":2,"conn":0}, "fromOutput": true }
+{ "type": "addModule", "area": "va", "typeName": "OscB", "col": 0, "row": 35 }
+{ "type": "deleteModule", "area": "va", "module": 33 }
 ```
 
 **moveModule** (v1, erster Mutations-Befehl): Wire-Format am G2 ist
 `S_MOV_MODULE` 0x34 als Slot-Request `[01, 0x28+slot, version, 34, location, index, col, row]`
 mit location FX=0/VA=1 (Quelle: BVerhue `BVE.NMG2Mess.pas`, G2-Edit `usbComms.c`).
+
+**addModule/deleteModule** (v1): `typeName` = shortName aus module-defs.json.
+Index (max+1 pro Area) und Name (typeName + laufende Nr.) vergibt der Server.
+Add läuft über g2lib `PatchArea.createModules` (komplette Message wie die
+Referenz-Editoren: `S_ADD_MODULE` 0x30 `[30, typeId, loc, index, col, row, 0,
+uprate, isLed, modes…, name]` + Cable-/Param-/Label-/Name-Sektionen mit
+Default-Werten für 10 Variationen). Delete löscht erst alle hängenden Kabel
+(je ein cableDeleted), dann `S_DEL_MODULE` 0x32 `[32, loc, index]`.
 
 **addCable/deleteCable** (v1): `to` ist immer ein Input; `fromOutput=false` = In-zu-In-Kabel.
 Die Kabelfarbe bestimmt der Server aus dem Quell-Connector (g2lib ModuleType-Ports,
@@ -77,7 +93,7 @@ Kind Input=0/Output=1, location FX=0/VA=1.
 
 ## Geplante Erweiterungen (v1, Phase 4)
 
-`addModule`, `deleteModule`, `setMorph`,
-`patchSettings`, Slot-Handling (A–D), Performance-Mode. Konvention: Client-Mutationen
+`setMorph`, `patchSettings`, Slot-Handling (A–D), Performance-Mode,
+Modul-Rename/-Farbe. Konvention: Client-Mutationen
 werden vom Server validiert, an den G2 geschickt und erst nach Bestätigung an alle
 Clients gebroadcastet (Server = Single Source of Truth).

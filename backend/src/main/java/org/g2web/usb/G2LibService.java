@@ -49,6 +49,8 @@ public final class G2LibService implements G2Service {
     /** S_ADD_CABLE/S_DEL_CABLE der Referenz-Editoren — fehlen in g2lib {@code Codes}. */
     private static final int S_ADD_CABLE = 0x50;
     private static final int S_DEL_CABLE = 0x51;
+    /** S_DEL_MODULE — fehlt ebenfalls; das Add übernimmt g2lib PatchArea.createModules. */
+    private static final int S_DEL_MODULE = 0x32;
 
     private final Devices devices;
     private final List<Consumer<Map<String, Object>>> listeners = new CopyOnWriteArrayList<>();
@@ -284,6 +286,71 @@ public final class G2LibService implements G2Service {
         });
     }
 
+    @Override
+    public void addModule(String area, String typeName, int col, int row) {
+        devices.runWithCurrentPerf(p -> {
+            AreaId areaId = "fx".equals(area) ? AreaId.Fx : AreaId.Voice;
+            Patch patch = p.getSelectedPatch();
+            PatchArea pa = patch.getArea(areaId);
+            org.g2fx.g2lib.model.ModuleType type = moduleTypeByShortName(typeName);
+            if (type == null) throw new IllegalArgumentException(
+                    "Unbekannter Modultyp: " + typeName);
+            // Index: max+1 pro Area (wie BVerhue GetMaxModuleIndex+1);
+            // Name: shortName + laufende Nr. (wie GetUniqueModuleNameSeqNr)
+            int index = pa.getModules().stream()
+                    .mapToInt(PatchModule::getIndex).max().orElse(0) + 1;
+            long sameType = pa.getModules().stream()
+                    .filter(m -> m.getUserModuleData().getType() == type).count();
+            String name = type.shortName + (sameType + 1);
+            // g2lib createModules baut die komplette Add-Message (0x30 + Cable-/
+            // Param-/Label-/Name-Sektionen wie die Referenz-Editoren), sendet sie
+            // als Slot-Request und pflegt den lokalen State.
+            List<PatchModule> created = pa.createModules(
+                    org.g2fx.g2gui.module.ModuleDelta.addNewModule(
+                            areaId, type, index, name, 0,
+                            new org.g2fx.g2lib.state.Coords(col, row)));
+            PatchModule m = created.get(0);
+            attachModuleParamListeners(patch.getSlot().name(), area, m);
+            emit(Map.of("type", "moduleAdded", "module", moduleOf(m, area)));
+        });
+    }
+
+    @Override
+    public void deleteModule(String area, int module) {
+        devices.runWithCurrentPerf(p -> {
+            AreaId areaId = "fx".equals(area) ? AreaId.Fx : AreaId.Voice;
+            Patch patch = p.getSelectedPatch();
+            PatchArea pa = patch.getArea(areaId);
+            PatchModule m = pa.getModule(module); // wirft bei unbekanntem Index
+            // Erst hängende Kabel löschen (wie G2-Edit action_delete_module),
+            // dann das Modul selbst.
+            List<PatchCable> attached = pa.getCables().stream()
+                    .filter(c -> c.getSrcModule() == module || c.getDestModule() == module)
+                    .toList();
+            for (PatchCable c : attached) {
+                pa.getCables().remove(c);
+                patch.getSlotSender().sendSlotRequest("delete-cable", S_DEL_CABLE,
+                        0x02 | areaId.ordinal(),
+                        c.getSrcModule(), ((c.getDirection() ? 1 : 0) << 6) | c.getSrcConn(),
+                        c.getDestModule(), c.getDestConn());
+                emit(Map.of("type", "cableDeleted", "area", area,
+                        "from", Map.of("module", c.getSrcModule(), "conn", c.getSrcConn()),
+                        "to", Map.of("module", c.getDestModule(), "conn", c.getDestConn())));
+            }
+            pa.getModules().remove(m); // Collection-View der TreeMap → entfernt aus Map
+            patch.getSlotSender().sendSlotRequest("delete-module", S_DEL_MODULE,
+                    areaId.ordinal(), module);
+            emit(Map.of("type", "moduleDeleted", "area", area, "module", module));
+        });
+    }
+
+    private static org.g2fx.g2lib.model.ModuleType moduleTypeByShortName(String shortName) {
+        for (org.g2fx.g2lib.model.ModuleType t : org.g2fx.g2lib.model.ModuleType.values()) {
+            if (t.shortName.equals(shortName)) return t;
+        }
+        return null;
+    }
+
     /** Kabel anhand seiner Endpunkte suchen (Identität wie im patchState). */
     private static PatchCable findCable(PatchArea pa, int fromModule, int fromConn,
                                         int toModule, int toConn) {
@@ -420,23 +487,28 @@ public final class G2LibService implements G2Service {
             for (AreaId areaId : AreaId.USER_AREAS) {
                 String areaName = areaId == AreaId.Voice ? "va" : "fx";
                 for (PatchModule m : patch.getArea(areaId).getModules()) {
-                    if (m.getValues() == null) continue;
-                    int moduleId = m.getIndex();
-                    int nParams = m.getUserModuleData().getType().getParams().size();
-                    for (int v = 0; v < PatchModule.MAX_VARIATIONS; v++) {
-                        for (int i = 0; i < nParams; i++) {
-                            final int var = v, param = i;
-                            m.getParamValueProperty(v, i).addListener((o, n) ->
-                                    emit(Map.of("type", "paramChanged",
-                                            "slot", slot, "area", areaName,
-                                            "module", moduleId, "param", param,
-                                            "value", n, "variation", var)));
-                        }
-                    }
+                    attachModuleParamListeners(slot, areaName, m);
                 }
             }
         } catch (Exception e) {
             log.log(Level.WARNING, "attachPatchListeners fehlgeschlagen", e);
+        }
+    }
+
+    /** paramChanged-Broadcasts für ein Modul (auch für frisch angelegte Module). */
+    private void attachModuleParamListeners(String slot, String areaName, PatchModule m) {
+        if (m.getValues() == null) return;
+        int moduleId = m.getIndex();
+        int nParams = m.getUserModuleData().getType().getParams().size();
+        for (int v = 0; v < PatchModule.MAX_VARIATIONS; v++) {
+            for (int i = 0; i < nParams; i++) {
+                final int var = v, param = i;
+                m.getParamValueProperty(v, i).addListener((o, n) ->
+                        emit(Map.of("type", "paramChanged",
+                                "slot", slot, "area", areaName,
+                                "module", moduleId, "param", param,
+                                "value", n, "variation", var)));
+            }
         }
     }
 

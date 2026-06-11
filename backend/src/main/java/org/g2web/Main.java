@@ -81,6 +81,14 @@ public final class Main {
                             !msg.has("fromOutput") || msg.get("fromOutput").asBoolean(),
                             msg.get("to").get("module").asInt(),
                             msg.get("to").get("conn").asInt());
+                    case "addModule" -> g2.addModule(
+                            msg.has("area") ? msg.get("area").asText() : "va",
+                            msg.get("typeName").asText(),
+                            msg.get("col").asInt(),
+                            msg.get("row").asInt());
+                    case "deleteModule" -> g2.deleteModule(
+                            msg.has("area") ? msg.get("area").asText() : "va",
+                            msg.get("module").asInt());
                     default -> { /* unbekannte Message ignorieren, siehe docs/protocol.md */ }
                 }
             });
