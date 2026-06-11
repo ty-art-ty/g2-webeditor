@@ -73,7 +73,16 @@ daher in alle modulbezogenen Messages. Fehlt es bei `setParam`, nimmt der Server
 { "type": "deleteModule", "area": "va", "module": 33 }
 { "type": "renameModule", "area": "va", "module": 1, "name": "Osc1" }
 { "type": "setModuleColor", "area": "va", "module": 1, "color": 10 }
+{ "type": "undo" }
+{ "type": "redo" }
 ```
+
+**undo/redo** (v1): Serverseitiger Verlauf (max 100 Einträge, ein Stack für alle
+Clients) über alle Mutationen: moveModule (inkl. Kollisions-Pushes), addModule,
+deleteModule (stellt Modul samt Kabeln/Farben wieder her), add/deleteCable
+(Farbe bleibt erhalten), renameModule, setModuleColor. Die Wirkung kommt als
+normale Broadcasts; leerer Verlauf = no-op; Patch-Wechsel verwirft den Verlauf.
+Neue Aktionen leeren den Redo-Stack.
 
 **moveModule** (v1, erster Mutations-Befehl): Wire-Format am G2 ist
 `S_MOV_MODULE` 0x34 als Slot-Request `[01, 0x28+slot, version, 34, location, index, col, row]`

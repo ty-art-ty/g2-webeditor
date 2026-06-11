@@ -103,6 +103,10 @@ public final class MockG2Service implements G2Service {
         emit(Map.of("type", "variationChanged", "variation", v));
     }
 
+    @Override public void undo() { /* Mock: kein Verlauf */ }
+
+    @Override public void redo() { /* Mock: kein Verlauf */ }
+
     @Override public void onEvent(Consumer<Map<String, Object>> l) { listeners.add(l); }
 
     private void emit(Map<String, Object> event) { listeners.forEach(l -> l.accept(event)); }

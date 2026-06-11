@@ -1,3 +1,55 @@
+# Phase 4b — Ergebnis Teil 5: Undo/Redo + Kabel-Hover (2026-06-11)
+
+**Status: ✅ Serverseitiges Undo/Redo über alle Mutationen, am echten G2 verifiziert.**
+
+## Verifiziert (Skript + Browser gegen echten G2, Patch „Basslines FM4")
+
+- `scripts/ws-undo-test.py`: addModule (undo→weg, redo→identisch zurück),
+  moveModule mit Kollisions-Push (undo stellt BEIDE Positionen wieder her),
+  addCable (undo/redo), deleteCable (undo erhält die Farbe),
+  deleteModule mit Kabel (undo restauriert Modul UND Kabel) — alles grün,
+  Endzustand = Ausgangszustand, Journal sauber
+- Browser: Umfärben + Cmd+Z setzt die Farbe zurück (Handler synthetisch
+  getriggert, s. Stolpersteine)
+
+## Umsetzung
+
+- **Architektur**: Jede Mutation refactored in öffentliche Methode (Undo-Buchhaltung)
+  + internes Primitiv ohne Buchhaltung (`addCableInternal`, `deleteCableInternal`,
+  `deleteModuleInternal`, `restoreModule`, `renameInternal`, `setColorInternal`,
+  `applyMoves`). Undo-Eintrag = Paar aus undo-/redo-Closure (`PerfAction`), die
+  auf dem g2lib-Executor-Thread laufen — Stacks (`ArrayDeque`, Limit 100) werden
+  NUR dort angefasst, kein Locking nötig. Fehlgeschlagenes Undo (Ziel weg) wird
+  geloggt und verworfen statt den Stack zu vergiften.
+- **Inverse**: move → Koordinaten-Diff gegen Snapshot (erfasst auch Kollisions-
+  Pushes, Undo/Redo via applyMoves ohne erneute Kollisionslogik); addModule →
+  delete + Pushes zurück / Redo restauriert aus `ModuleDelta.UserModuleRecord`
+  (nach den Kollisionen gebaut → finale Koords); deleteModule → restore aus
+  Record + `CableSnap`-Liste (Farbe/Richtung erhalten); deleteCable → addCable
+  mit `colorOverride` (sonst würde die Farbe neu berechnet); rename/color → alter Wert.
+- **Verlauf-Invalidierung**: `clearUndo()` bei loadPatch und Patch-Lifecycle-Init
+  (Slot-Inhalt von außen ersetzt). Neue Aktion leert den Redo-Stack.
+- **Frontend**: Cmd/Ctrl+Z = undo, +Shift = redo (nicht aus Inputs); Kabel-Hover
+  hebt den sichtbaren Pfad hervor (pointerenter/leave am Hit-Pfad, Auswahl bleibt).
+
+## Stolpersteine
+
+- Claude-in-Chrome: synthetisches `cmd+z` erreicht die Seite NICHT (Browser-Menü
+  schluckt es; `cmd+a` u.a. kommen durch). Handler-Test via
+  `document.dispatchEvent(new KeyboardEvent(...))`. Echte Tastatur ist ok.
+- Während der Session meldete sich der G2 vom USB ab (Gerät war aus) — Server
+  lief weiter (`connected:false`), nach Wiedereinschalten Hotplug ohne Neustart.
+  Außerdem mDNS-Aussetzer am Mac: clockworkpi.local hing, per IP 192.168.188.119
+  ging alles — Deploy-Skripte besser direkt auf die IP.
+
+## Offen (→ Teil 6+)
+
+1. Multi-Select-Drag, Copy/Paste (Undo-Gerüst steht dafür bereit).
+2. Morph-/Patch-Settings, Slot-Handling A–D, Performance-Mode.
+3. Undo-Feedback im UI (Stack-Tiefe/Label anzeigen).
+
+---
+
 # Phase 4b — Ergebnis Teil 4: Kollisionen, renameModule, setModuleColor (2026-06-11)
 
 **Status: ✅ Kollisions-Push-Down bei Move/Add, Modul-Rename und -Farbe fertig,

@@ -256,13 +256,17 @@ export function renderArea(
     modLayer.appendChild(g);
   }
 
-  // Kabel: sichtbarer Pfad + breiter unsichtbarer Hit-Pfad (Klick = Auswahl)
+  // Kabel: sichtbarer Pfad + breiter unsichtbarer Hit-Pfad (Klick = Auswahl,
+  // Hover = Hervorhebung — hilft bei sich kreuzenden Kabeln)
   const cablePaths: SVGPathElement[] = [];
+  let selectedVisible: SVGPathElement | null = null;
+  const emphasize = (p: SVGPathElement, on: boolean) => {
+    p.setAttribute('stroke-width', on ? '5' : '3');
+    p.setAttribute('opacity', on ? '1' : '0.85');
+  };
   const clearCableSel = () => {
-    for (const p of cablePaths) {
-      p.setAttribute('stroke-width', '3');
-      p.setAttribute('opacity', '0.85');
-    }
+    selectedVisible = null;
+    for (const p of cablePaths) emphasize(p, false);
   };
   for (const c of cables.filter((c) => c.area === area)) {
     const a = connCenter(defs, byId, c.from.module, c.from.conn, c.fromOutput ?? true);
@@ -282,9 +286,13 @@ export function renderArea(
     hit.addEventListener('click', (ev) => {
       ev.stopPropagation();
       clearCableSel();
-      visible.setAttribute('stroke-width', '5');
-      visible.setAttribute('opacity', '1');
+      selectedVisible = visible;
+      emphasize(visible, true);
       onSelectCable(c);
+    });
+    hit.addEventListener('pointerenter', () => emphasize(visible, true));
+    hit.addEventListener('pointerleave', () => {
+      if (visible !== selectedVisible) emphasize(visible, false);
     });
     cableLayer.append(hit, visible);
     for (const p of [a, b]) {

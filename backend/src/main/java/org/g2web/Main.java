@@ -97,6 +97,8 @@ public final class Main {
                             msg.has("area") ? msg.get("area").asText() : "va",
                             msg.get("module").asInt(),
                             msg.get("color").asInt());
+                    case "undo" -> g2.undo();
+                    case "redo" -> g2.redo();
                     default -> { /* unbekannte Message ignorieren, siehe docs/protocol.md */ }
                 }
             });

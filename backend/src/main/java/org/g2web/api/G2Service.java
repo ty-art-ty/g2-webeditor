@@ -65,6 +65,15 @@ public interface G2Service {
     /** Modulfarbe setzen (0–24, Index in MODULE_COLORS). Broadcastet "moduleColorChanged". */
     void setModuleColor(String area, int module, int color);
 
+    /**
+     * Letzte Mutation rückgängig machen bzw. wiederholen. Die Wirkung kommt als
+     * normale Broadcasts (moduleMoved/cableAdded/…) zurück; leerer Stack = no-op.
+     * Der Verlauf wird bei Patch-Wechsel verworfen.
+     */
+    void undo();
+
+    void redo();
+
     /** Events vom G2 (Param-Änderungen am Gerät, Patch-Wechsel, Connect/Disconnect). */
     void onEvent(Consumer<Map<String, Object>> listener);
 }

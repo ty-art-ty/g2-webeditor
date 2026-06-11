@@ -69,9 +69,12 @@ export interface AddModule { type: 'addModule'; area: Area; typeName: string; co
 export interface DeleteModule { type: 'deleteModule'; area: Area; module: number; }
 export interface RenameModule { type: 'renameModule'; area: Area; module: number; name: string; }
 export interface SetModuleColor { type: 'setModuleColor'; area: Area; module: number; color: number; }
+/** Wirkung kommt als normale Broadcasts zurück; leerer Verlauf = no-op. */
+export interface Undo { type: 'undo'; }
+export interface Redo { type: 'redo'; }
 export type ClientMessage =
   SetParam | SelectVariation | MoveModule | AddCable | DeleteCable |
-  AddModule | DeleteModule | RenameModule | SetModuleColor;
+  AddModule | DeleteModule | RenameModule | SetModuleColor | Undo | Redo;
 
 // REST: /api/banks
 export interface BankEntry { slot: number; name: string; category?: number; }

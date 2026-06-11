@@ -57,6 +57,29 @@ public final class G2LibService implements G2Service {
     private final Devices devices;
     private final List<Consumer<Map<String, Object>>> listeners = new CopyOnWriteArrayList<>();
 
+    // ---------------- Undo/Redo (nur auf dem g2lib-Executor-Thread anfassen!) ----------------
+
+    /** Aktion auf dem Executor-Thread; Closures kapseln Vorher-/Nachher-Zustand. */
+    private interface PerfAction { void run(Performance p) throws Exception; }
+
+    private record UndoEntry(String label, PerfAction undo, PerfAction redo) {}
+
+    private static final int UNDO_LIMIT = 100;
+    private final java.util.ArrayDeque<UndoEntry> undoStack = new java.util.ArrayDeque<>();
+    private final java.util.ArrayDeque<UndoEntry> redoStack = new java.util.ArrayDeque<>();
+
+    /** Neue Nutzeraktion: Undo-Eintrag stapeln, Redo-Verlauf verwerfen. */
+    private void pushUndo(String label, PerfAction undo, PerfAction redo) {
+        undoStack.push(new UndoEntry(label, undo, redo));
+        while (undoStack.size() > UNDO_LIMIT) undoStack.pollLast();
+        redoStack.clear();
+    }
+
+    private void clearUndo() {
+        undoStack.clear();
+        redoStack.clear();
+    }
+
     private volatile boolean connected;
     private volatile int variation = 0;
     /** Letzter Bank-Snapshot vom Gerät: type -> bank -> entry -> Entry. */
@@ -104,6 +127,7 @@ public final class G2LibService implements G2Service {
         devices.addPatchListener(new LifecycleListener<>() {
             @Override
             public void onLifecycleInit(Patch p) {
+                clearUndo(); // frischer Slot-Inhalt → alter Undo-Verlauf ungültig
                 attachPatchListeners(p);
                 Performance perf = devices.getCurrentPerf();
                 if (perf != null) emit(patchStateOf(perf));
@@ -168,8 +192,38 @@ public final class G2LibService implements G2Service {
     public void loadPatch(int bank, int entry) {
         // Lädt in den aktuell gewählten Slot; 1-indexiert wie docs/protocol.md
         devices.runWithCurrent(d -> {
+            clearUndo(); // Undo-Verlauf gehört zum alten Patch
             int slotCode = devices.getCurrentPerf().getSelectedSlot().ordinal();
             d.getEntries().loadEntry(slotCode, bank - 1, entry - 1);
+        });
+    }
+
+    @Override
+    public void undo() {
+        devices.runWithCurrentPerf(p -> {
+            UndoEntry e = undoStack.poll();
+            if (e == null) return;
+            try {
+                e.undo().run(p);
+                redoStack.push(e);
+            } catch (Exception ex) {
+                // z.B. Ziel existiert nicht mehr — Eintrag verwerfen statt Stack vergiften
+                log.log(Level.WARNING, "undo fehlgeschlagen: " + e.label(), ex);
+            }
+        });
+    }
+
+    @Override
+    public void redo() {
+        devices.runWithCurrentPerf(p -> {
+            UndoEntry e = redoStack.poll();
+            if (e == null) return;
+            try {
+                e.redo().run(p);
+                undoStack.push(e);
+            } catch (Exception ex) {
+                log.log(Level.WARNING, "redo fehlgeschlagen: " + e.label(), ex);
+            }
         });
     }
 
@@ -210,6 +264,8 @@ public final class G2LibService implements G2Service {
             PatchModule m = patch.getArea(areaId).getModule(module);
             if (m == null) throw new IllegalArgumentException(
                     "Unbekanntes Modul: " + area + "/" + module);
+            // Vorher-Koordinaten für Undo sichern
+            Map<Integer, int[]> before = snapshotCoords(patch.getArea(areaId));
             // Lokalen State setzen — column()/row() sind intFieldProperty und senden
             // NICHT (gleiche Falle wie variation, siehe docs/phase3-ergebnis.md) …
             m.getUserModuleData().column().set(col);
@@ -228,7 +284,51 @@ public final class G2LibService implements G2Service {
             for (PatchModule c : pushed) {
                 if (c.getIndex() != module) sendMoveAndEmit(patch, areaId, area, c);
             }
+            // Undo: alle effektiv verschobenen Module auf die alten Koords zurück
+            List<int[]> oldMoves = new ArrayList<>(), newMoves = new ArrayList<>();
+            coordDiff(patch.getArea(areaId), before, oldMoves, newMoves);
+            if (!newMoves.isEmpty()) {
+                pushUndo("moveModule",
+                        p2 -> applyMoves(p2, area, oldMoves),
+                        p2 -> applyMoves(p2, area, newMoves));
+            }
         });
+    }
+
+    /** Koordinaten aller Module einer Area: index -> {col,row}. */
+    private static Map<Integer, int[]> snapshotCoords(PatchArea pa) {
+        Map<Integer, int[]> out = new LinkedHashMap<>();
+        for (PatchModule m : pa.getModules()) {
+            out.put(m.getIndex(), new int[]{
+                    m.getUserModuleData().column().get(), m.getUserModuleData().row().get()});
+        }
+        return out;
+    }
+
+    /** Diff gegen Snapshot: alte und neue {index,col,row} der geänderten Module. */
+    private static void coordDiff(PatchArea pa, Map<Integer, int[]> before,
+                                  List<int[]> oldMoves, List<int[]> newMoves) {
+        for (PatchModule m : pa.getModules()) {
+            int[] old = before.get(m.getIndex());
+            int col = m.getUserModuleData().column().get();
+            int row = m.getUserModuleData().row().get();
+            if (old != null && (old[0] != col || old[1] != row)) {
+                oldMoves.add(new int[]{m.getIndex(), old[0], old[1]});
+                newMoves.add(new int[]{m.getIndex(), col, row});
+            }
+        }
+    }
+
+    /** Moves {index,col,row} anwenden: lokal setzen + senden + emitten (ohne Kollisionslogik). */
+    private void applyMoves(Performance p, String area, List<int[]> moves) throws Exception {
+        AreaId areaId = "fx".equals(area) ? AreaId.Fx : AreaId.Voice;
+        Patch patch = p.getSelectedPatch();
+        for (int[] mv : moves) {
+            PatchModule m = patch.getArea(areaId).getModule(mv[0]);
+            m.getUserModuleData().column().set(mv[1]);
+            m.getUserModuleData().row().set(mv[2]);
+            sendMoveAndEmit(patch, areaId, area, m);
+        }
     }
 
     /** S_MOV_MODULE für die aktuellen (lokalen) Koordinaten senden + moduleMoved emitten. */
@@ -291,14 +391,37 @@ public final class G2LibService implements G2Service {
     public void addCable(String area, int fromModule, int fromConn, boolean fromOutput,
                          int toModule, int toConn) {
         devices.runWithCurrentPerf(p -> {
+            if (findCable(p.getSelectedPatch().getArea(
+                            "fx".equals(area) ? AreaId.Fx : AreaId.Voice),
+                    fromModule, fromConn, toModule, toConn) != null) {
+                return; // existiert schon — idempotent, kein Senden/Broadcast/Undo
+            }
+            addCableInternal(p, area, fromModule, fromConn, fromOutput, toModule, toConn, null);
+            pushUndo("addCable",
+                    p2 -> deleteCableInternal(p2, area, fromModule, fromConn,
+                            fromOutput, toModule, toConn),
+                    p2 -> addCableInternal(p2, area, fromModule, fromConn,
+                            fromOutput, toModule, toConn, null));
+        });
+    }
+
+    /**
+     * Kabel anlegen ohne Undo-Buchhaltung; {@code colorOverride} erzwingt eine
+     * Farbe (für Undo/Restore), sonst bestimmt sie der Quell-Connector.
+     */
+    private void addCableInternal(Performance p, String area, int fromModule, int fromConn,
+                                  boolean fromOutput, int toModule, int toConn,
+                                  Integer colorOverride) throws Exception {
+        {
             AreaId areaId = "fx".equals(area) ? AreaId.Fx : AreaId.Voice;
             PatchArea pa = p.getSelectedPatch().getArea(areaId);
             PatchModule from = pa.getModule(fromModule); // wirft bei unbekanntem Index
             pa.getModule(toModule);
             if (findCable(pa, fromModule, fromConn, toModule, toConn) != null) {
-                return; // existiert schon — idempotent, kein Senden/Broadcast
+                return; // idempotent
             }
-            int color = cableColorOf(from, fromConn, fromOutput);
+            int color = colorOverride != null ? colorOverride
+                    : cableColorOf(from, fromConn, fromOutput);
             // Lokalen State pflegen (g2lib hat keine Mutations-API mit Senden) …
             pa.addCable(org.g2fx.g2lib.protocol.Protocol.Cable.FIELDS.values(
                     org.g2fx.g2lib.protocol.Protocol.Cable.Color.value(color),
@@ -320,7 +443,7 @@ public final class G2LibService implements G2Service {
                     "from", Map.of("module", fromModule, "conn", fromConn),
                     "to", Map.of("module", toModule, "conn", toConn),
                     "fromOutput", fromOutput, "color", cableColor(color)));
-        });
+        }
     }
 
     @Override
@@ -328,23 +451,42 @@ public final class G2LibService implements G2Service {
                             int toModule, int toConn) {
         devices.runWithCurrentPerf(p -> {
             AreaId areaId = "fx".equals(area) ? AreaId.Fx : AreaId.Voice;
-            PatchArea pa = p.getSelectedPatch().getArea(areaId);
-            PatchCable cable = findCable(pa, fromModule, fromConn, toModule, toConn);
+            PatchCable cable = findCable(p.getSelectedPatch().getArea(areaId),
+                    fromModule, fromConn, toModule, toConn);
             if (cable == null) throw new IllegalArgumentException(
                     "Unbekanntes Kabel: " + area + " " + fromModule + ":" + fromConn
                             + " -> " + toModule + ":" + toConn);
-            pa.getCables().remove(cable);
-            // Wire-Format (BVerhue AddDeleteConnectionMessage, G2-Edit eMsgCmdDeleteCable):
-            //   [0x51, 0x02|loc, fromMod, fromKind<<6|fromConn, toMod, toKind<<6|toConn]
-            p.getSelectedPatch().getSlotSender().sendSlotRequest("delete-cable",
-                    S_DEL_CABLE,
-                    0x02 | areaId.ordinal(),
-                    fromModule, ((fromOutput ? 1 : 0) << 6) | fromConn,
-                    toModule, toConn);
-            emit(Map.of("type", "cableDeleted", "area", area,
-                    "from", Map.of("module", fromModule, "conn", fromConn),
-                    "to", Map.of("module", toModule, "conn", toConn)));
+            int color = cable.getColor(); // fürs Undo erhalten (Add würde neu berechnen)
+            deleteCableInternal(p, area, fromModule, fromConn, fromOutput, toModule, toConn);
+            pushUndo("deleteCable",
+                    p2 -> addCableInternal(p2, area, fromModule, fromConn,
+                            fromOutput, toModule, toConn, color),
+                    p2 -> deleteCableInternal(p2, area, fromModule, fromConn,
+                            fromOutput, toModule, toConn));
         });
+    }
+
+    /** Kabel löschen ohne Undo-Buchhaltung; wirft, wenn es nicht existiert. */
+    private void deleteCableInternal(Performance p, String area, int fromModule, int fromConn,
+                                     boolean fromOutput, int toModule, int toConn)
+            throws Exception {
+        AreaId areaId = "fx".equals(area) ? AreaId.Fx : AreaId.Voice;
+        PatchArea pa = p.getSelectedPatch().getArea(areaId);
+        PatchCable cable = findCable(pa, fromModule, fromConn, toModule, toConn);
+        if (cable == null) throw new IllegalArgumentException(
+                "Unbekanntes Kabel: " + area + " " + fromModule + ":" + fromConn
+                        + " -> " + toModule + ":" + toConn);
+        pa.getCables().remove(cable);
+        // Wire-Format (BVerhue AddDeleteConnectionMessage, G2-Edit eMsgCmdDeleteCable):
+        //   [0x51, 0x02|loc, fromMod, fromKind<<6|fromConn, toMod, toKind<<6|toConn]
+        p.getSelectedPatch().getSlotSender().sendSlotRequest("delete-cable",
+                S_DEL_CABLE,
+                0x02 | areaId.ordinal(),
+                fromModule, ((fromOutput ? 1 : 0) << 6) | fromConn,
+                toModule, toConn);
+        emit(Map.of("type", "cableDeleted", "area", area,
+                "from", Map.of("module", fromModule, "conn", fromConn),
+                "to", Map.of("module", toModule, "conn", toConn)));
     }
 
     @Override
@@ -372,6 +514,9 @@ public final class G2LibService implements G2Service {
                             new org.g2fx.g2lib.state.Coords(col, row)));
             PatchModule m = created.get(0);
             attachModuleParamListeners(patch.getSlot().name(), area, m);
+            // Vorher-Koordinaten (ohne das neue Modul) für Undo der Verdrängungen
+            Map<Integer, int[]> before = snapshotCoords(pa);
+            before.remove(index);
             // Kollisionen auflösen; das neue Modul kann dabei selbst verrutschen —
             // dann Korrektur als Move nachsenden (das Add ging mit Wunsch-Koords raus).
             // moduleAdded kommt zuletzt und trägt bereits die finalen Koordinaten.
@@ -387,7 +532,47 @@ public final class G2LibService implements G2Service {
                 }
             }
             emit(Map.of("type", "moduleAdded", "module", moduleOf(m, area)));
+            // Undo: Modul wieder weg + Verdrängte zurück; Redo: exakt restaurieren.
+            // Record erst NACH den Kollisionen bauen (finale Koordinaten).
+            var rec = new org.g2fx.g2gui.module.ModuleDelta.UserModuleRecord(m);
+            List<int[]> oldMoves = new ArrayList<>(), newMoves = new ArrayList<>();
+            coordDiff(pa, before, oldMoves, newMoves);
+            pushUndo("addModule",
+                    p2 -> {
+                        deleteModuleInternal(p2, area, index);
+                        applyMoves(p2, area, oldMoves);
+                    },
+                    p2 -> {
+                        restoreModule(p2, area, rec, List.of());
+                        applyMoves(p2, area, newMoves);
+                    });
         });
+    }
+
+    /** Schnappschuss eines Kabels fürs Wiederherstellen. */
+    private record CableSnap(int fromModule, int fromConn, boolean fromOutput,
+                             int toModule, int toConn, int color) {}
+
+    /**
+     * Modul aus einem UserModuleRecord wiederherstellen (für Undo von delete bzw.
+     * Redo von add): volle Add-Message via createModules, Listener, moduleAdded,
+     * danach die gesicherten Kabel.
+     */
+    private void restoreModule(Performance p, String area,
+                               org.g2fx.g2gui.module.ModuleDelta.UserModuleRecord rec,
+                               List<CableSnap> cables) throws Exception {
+        AreaId areaId = "fx".equals(area) ? AreaId.Fx : AreaId.Voice;
+        Patch patch = p.getSelectedPatch();
+        PatchArea pa = patch.getArea(areaId);
+        List<PatchModule> created = pa.createModules(new org.g2fx.g2gui.module.ModuleDelta(
+                List.of(rec), List.of(), true));
+        PatchModule m = created.get(0);
+        attachModuleParamListeners(patch.getSlot().name(), area, m);
+        emit(Map.of("type", "moduleAdded", "module", moduleOf(m, area)));
+        for (CableSnap c : cables) {
+            addCableInternal(p, area, c.fromModule(), c.fromConn(), c.fromOutput(),
+                    c.toModule(), c.toConn(), c.color());
+        }
     }
 
     @Override
@@ -395,64 +580,104 @@ public final class G2LibService implements G2Service {
         String n = name.length() > 16 ? name.substring(0, 16) : name;
         devices.runWithCurrentPerf(p -> {
             AreaId areaId = "fx".equals(area) ? AreaId.Fx : AreaId.Voice;
-            Patch patch = p.getSelectedPatch();
-            PatchModule m = patch.getArea(areaId).getModule(module);
-            m.name().set(n); // lokal — stringFieldProperty sendet nicht
-            // Wire-Format (BVerhue AddSetModuleLabelMessage):
-            //   [0x33, location, index, name als Clavia-String (\0-terminiert wenn <16)]
-            byte[] nb = n.getBytes(java.nio.charset.StandardCharsets.US_ASCII);
-            byte[] msg = new byte[3 + nb.length + (nb.length < 16 ? 1 : 0)];
-            msg[0] = (byte) S_SET_MODULE_LABEL;
-            msg[1] = (byte) areaId.ordinal();
-            msg[2] = (byte) module;
-            System.arraycopy(nb, 0, msg, 3, nb.length);
-            patch.getSlotSender().sendSlotRequest("rename-module", msg);
-            emit(Map.of("type", "moduleRenamed", "area", area, "module", module, "name", n));
+            String old = p.getSelectedPatch().getArea(areaId).getModule(module).name().get();
+            renameInternal(p, area, module, n);
+            pushUndo("renameModule",
+                    p2 -> renameInternal(p2, area, module, old),
+                    p2 -> renameInternal(p2, area, module, n));
         });
+    }
+
+    private void renameInternal(Performance p, String area, int module, String n)
+            throws Exception {
+        AreaId areaId = "fx".equals(area) ? AreaId.Fx : AreaId.Voice;
+        Patch patch = p.getSelectedPatch();
+        PatchModule m = patch.getArea(areaId).getModule(module);
+        m.name().set(n); // lokal — stringFieldProperty sendet nicht
+        // Wire-Format (BVerhue AddSetModuleLabelMessage):
+        //   [0x33, location, index, name als Clavia-String (\0-terminiert wenn <16)]
+        byte[] nb = n.getBytes(java.nio.charset.StandardCharsets.US_ASCII);
+        byte[] msg = new byte[3 + nb.length + (nb.length < 16 ? 1 : 0)];
+        msg[0] = (byte) S_SET_MODULE_LABEL;
+        msg[1] = (byte) areaId.ordinal();
+        msg[2] = (byte) module;
+        System.arraycopy(nb, 0, msg, 3, nb.length);
+        patch.getSlotSender().sendSlotRequest("rename-module", msg);
+        emit(Map.of("type", "moduleRenamed", "area", area, "module", module, "name", n));
     }
 
     @Override
     public void setModuleColor(String area, int module, int color) {
         devices.runWithCurrentPerf(p -> {
             AreaId areaId = "fx".equals(area) ? AreaId.Fx : AreaId.Voice;
-            Patch patch = p.getSelectedPatch();
-            PatchModule m = patch.getArea(areaId).getModule(module);
-            m.getUserModuleData().color().set(color); // lokal
-            // Wire-Format (BVerhue AddSetModuleColorMessage): [0x31, location, index, color]
-            patch.getSlotSender().sendSlotRequest("set-module-color",
-                    S_SET_MODULE_COLOR, areaId.ordinal(), module, color);
-            emit(Map.of("type", "moduleColorChanged",
-                    "area", area, "module", module, "color", color));
+            int old = p.getSelectedPatch().getArea(areaId).getModule(module)
+                    .getUserModuleData().color().get();
+            setColorInternal(p, area, module, color);
+            pushUndo("setModuleColor",
+                    p2 -> setColorInternal(p2, area, module, old),
+                    p2 -> setColorInternal(p2, area, module, color));
         });
+    }
+
+    private void setColorInternal(Performance p, String area, int module, int color)
+            throws Exception {
+        AreaId areaId = "fx".equals(area) ? AreaId.Fx : AreaId.Voice;
+        Patch patch = p.getSelectedPatch();
+        PatchModule m = patch.getArea(areaId).getModule(module);
+        m.getUserModuleData().color().set(color); // lokal
+        // Wire-Format (BVerhue AddSetModuleColorMessage): [0x31, location, index, color]
+        patch.getSlotSender().sendSlotRequest("set-module-color",
+                S_SET_MODULE_COLOR, areaId.ordinal(), module, color);
+        emit(Map.of("type", "moduleColorChanged",
+                "area", area, "module", module, "color", color));
     }
 
     @Override
     public void deleteModule(String area, int module) {
         devices.runWithCurrentPerf(p -> {
             AreaId areaId = "fx".equals(area) ? AreaId.Fx : AreaId.Voice;
-            Patch patch = p.getSelectedPatch();
-            PatchArea pa = patch.getArea(areaId);
+            PatchArea pa = p.getSelectedPatch().getArea(areaId);
             PatchModule m = pa.getModule(module); // wirft bei unbekanntem Index
-            // Erst hängende Kabel löschen (wie G2-Edit action_delete_module),
-            // dann das Modul selbst.
-            List<PatchCable> attached = pa.getCables().stream()
+            // Vollständigen Zustand fürs Undo sichern: Modul-Record + hängende Kabel
+            var rec = new org.g2fx.g2gui.module.ModuleDelta.UserModuleRecord(m);
+            List<CableSnap> cables = pa.getCables().stream()
                     .filter(c -> c.getSrcModule() == module || c.getDestModule() == module)
+                    .map(c -> new CableSnap(c.getSrcModule(), c.getSrcConn(),
+                            c.getDirection(), c.getDestModule(), c.getDestConn(),
+                            c.getColor()))
                     .toList();
-            for (PatchCable c : attached) {
-                pa.getCables().remove(c);
-                patch.getSlotSender().sendSlotRequest("delete-cable", S_DEL_CABLE,
-                        0x02 | areaId.ordinal(),
-                        c.getSrcModule(), ((c.getDirection() ? 1 : 0) << 6) | c.getSrcConn(),
-                        c.getDestModule(), c.getDestConn());
-                emit(Map.of("type", "cableDeleted", "area", area,
-                        "from", Map.of("module", c.getSrcModule(), "conn", c.getSrcConn()),
-                        "to", Map.of("module", c.getDestModule(), "conn", c.getDestConn())));
-            }
-            pa.getModules().remove(m); // Collection-View der TreeMap → entfernt aus Map
-            patch.getSlotSender().sendSlotRequest("delete-module", S_DEL_MODULE,
-                    areaId.ordinal(), module);
-            emit(Map.of("type", "moduleDeleted", "area", area, "module", module));
+            deleteModuleInternal(p, area, module);
+            pushUndo("deleteModule",
+                    p2 -> restoreModule(p2, area, rec, cables),
+                    p2 -> deleteModuleInternal(p2, area, module));
         });
+    }
+
+    /** Modul (samt hängender Kabel) löschen ohne Undo-Buchhaltung. */
+    private void deleteModuleInternal(Performance p, String area, int module) throws Exception {
+        AreaId areaId = "fx".equals(area) ? AreaId.Fx : AreaId.Voice;
+        Patch patch = p.getSelectedPatch();
+        PatchArea pa = patch.getArea(areaId);
+        PatchModule m = pa.getModule(module); // wirft bei unbekanntem Index
+        // Erst hängende Kabel löschen (wie G2-Edit action_delete_module),
+        // dann das Modul selbst.
+        List<PatchCable> attached = pa.getCables().stream()
+                .filter(c -> c.getSrcModule() == module || c.getDestModule() == module)
+                .toList();
+        for (PatchCable c : attached) {
+            pa.getCables().remove(c);
+            patch.getSlotSender().sendSlotRequest("delete-cable", S_DEL_CABLE,
+                    0x02 | areaId.ordinal(),
+                    c.getSrcModule(), ((c.getDirection() ? 1 : 0) << 6) | c.getSrcConn(),
+                    c.getDestModule(), c.getDestConn());
+            emit(Map.of("type", "cableDeleted", "area", area,
+                    "from", Map.of("module", c.getSrcModule(), "conn", c.getSrcConn()),
+                    "to", Map.of("module", c.getDestModule(), "conn", c.getDestConn())));
+        }
+        pa.getModules().remove(m); // Collection-View der TreeMap → entfernt aus Map
+        patch.getSlotSender().sendSlotRequest("delete-module", S_DEL_MODULE,
+                areaId.ordinal(), module);
+        emit(Map.of("type", "moduleDeleted", "area", area, "module", module));
     }
 
     private static org.g2fx.g2lib.model.ModuleType moduleTypeByShortName(String shortName) {

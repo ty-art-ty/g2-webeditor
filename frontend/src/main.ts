@@ -144,11 +144,16 @@ const findCable = (
     && c.from.module === from.module && c.from.conn === from.conn
     && c.to.module === to.module && c.to.conn === to.conn);
 
-// Entf/Backspace löscht das ausgewählte Kabel, sonst das ausgewählte Modul
-// (nicht aus Eingabefeldern heraus)
+// Entf/Backspace löscht das ausgewählte Kabel, sonst das ausgewählte Modul;
+// Cmd/Ctrl+Z = Undo, +Shift = Redo (nicht aus Eingabefeldern heraus)
 document.addEventListener('keydown', (ev) => {
-  if (ev.key !== 'Delete' && ev.key !== 'Backspace') return;
   if (document.activeElement instanceof HTMLInputElement) return;
+  if ((ev.metaKey || ev.ctrlKey) && ev.key.toLowerCase() === 'z') {
+    ev.preventDefault();
+    send({ type: ev.shiftKey ? 'redo' : 'undo' });
+    return;
+  }
+  if (ev.key !== 'Delete' && ev.key !== 'Backspace') return;
   if (selectedCable) {
     send({ type: 'deleteCable', area: selectedCable.area,
       from: selectedCable.from, to: selectedCable.to,
