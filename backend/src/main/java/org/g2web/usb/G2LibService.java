@@ -79,6 +79,7 @@ public final class G2LibService implements G2Service {
             while (undoStack.size() > UNDO_LIMIT) undoStack.pollLast();
             redoStack.clear();
         }
+        emitUndoState();
     }
 
     private void clearUndo() {
@@ -86,6 +87,26 @@ public final class G2LibService implements G2Service {
             undoStack.clear();
             redoStack.clear();
         }
+        emitUndoState();
+    }
+
+    /** Aktueller Verlauf fürs UI: Tiefen + Label der obersten Einträge. */
+    private Map<String, Object> undoStateOf() {
+        synchronized (undoLock) {
+            Map<String, Object> out = new LinkedHashMap<>();
+            out.put("undoDepth", undoStack.size());
+            out.put("redoDepth", redoStack.size());
+            UndoEntry u = undoStack.peek(), r = redoStack.peek();
+            if (u != null) out.put("undoLabel", u.label());
+            if (r != null) out.put("redoLabel", r.label());
+            return out;
+        }
+    }
+
+    private void emitUndoState() {
+        Map<String, Object> st = new LinkedHashMap<>(undoStateOf());
+        st.put("type", "undoState");
+        emit(st);
     }
 
     private volatile boolean connected;
@@ -219,6 +240,7 @@ public final class G2LibService implements G2Service {
                 // z.B. Ziel existiert nicht mehr — Eintrag verwerfen statt Stack vergiften
                 log.log(Level.WARNING, "undo fehlgeschlagen: " + e.label(), ex);
             }
+            emitUndoState();
         });
     }
 
@@ -234,6 +256,7 @@ public final class G2LibService implements G2Service {
             } catch (Exception ex) {
                 log.log(Level.WARNING, "redo fehlgeschlagen: " + e.label(), ex);
             }
+            emitUndoState();
         });
     }
 
@@ -1027,6 +1050,7 @@ public final class G2LibService implements G2Service {
             slots.add(Map.of("slot", sp.getSlot().name(), "name", n == null ? "" : n));
         }
         out.put("slots", slots);
+        out.put("undo", undoStateOf()); // damit frische Clients die Buttons korrekt zeigen
 
         List<Map<String, Object>> modules = new ArrayList<>();
         List<Map<String, Object>> cables = new ArrayList<>();

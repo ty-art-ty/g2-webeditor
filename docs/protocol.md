@@ -101,6 +101,12 @@ Default-Werten für 10 Variationen). Delete löscht erst alle hängenden Kabel
 (tiefe Kopie!), Farbe, Name und Custom-Labels; neuen Index vergibt der Server,
 Antwort = `moduleAdded`, Kollisionen wie addModule, Undo = Löschen.
 
+**undoState** (v1): Broadcast nach jeder Verlaufs-Änderung (Mutation, undo,
+redo, Slot-/Patch-Wechsel): `{undoDepth, redoDepth, undoLabel?, redoLabel?}` —
+Labels sind die internen Aktionsnamen (addModule, copySelection, …). Derselbe
+Datensatz steckt als `undo{}` im patchState, damit frische Clients die
+Buttons korrekt zeigen.
+
 **selectSlot** (v1): `{slot: 0–3}` wechselt den aktiven Slot A–D. Wire-Format
 als Perf-Request (CMD_REQ+CMD_SYS = 0x2c, BVerhue `CreateSelectSlotMessage`):
 `[01, 2c, perfVersion, 09, slot]`. Antwort = kompletter `patchState` des neuen

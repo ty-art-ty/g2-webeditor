@@ -26,8 +26,15 @@ export interface PatchState {
   perf: string; slot: string; name: string; variation: number;
   /** Alle 4 Slots (A–D) mit Patch-Namen für die Slot-Leiste. */
   slots?: { slot: string; name: string }[];
+  /** Undo-Verlauf für die Buttons (Tiefen + Label der obersten Einträge). */
+  undo?: UndoInfo;
   modules: Module[]; cables: Cable[];
 }
+export interface UndoInfo {
+  undoDepth: number; redoDepth: number; undoLabel?: string; redoLabel?: string;
+}
+/** Broadcast nach jeder Verlaufs-Änderung (Mutation, undo/redo, Slot-/Patch-Wechsel). */
+export interface UndoState extends UndoInfo { type: 'undoState'; }
 export interface ParamChanged {
   type: 'paramChanged'; slot?: string; area: Area;
   module: number; param: number; value: number; variation: number;
@@ -54,7 +61,7 @@ export interface SelectionCopied { type: 'selectionCopied'; area: Area; modules:
 export type ServerMessage =
   PatchState | ParamChanged | VariationChanged | Connection | ModuleMoved |
   CableAdded | CableDeleted | ModuleAdded | ModuleDeleted |
-  ModuleRenamed | ModuleColorChanged | SelectionCopied;
+  ModuleRenamed | ModuleColorChanged | SelectionCopied | UndoState;
 
 export interface SetParam {
   type: 'setParam'; area: Area; module: number; param: number; value: number; variation: number;

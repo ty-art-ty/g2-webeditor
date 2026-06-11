@@ -1,5 +1,6 @@
 import type {
   Area, Bank, Cable, ClientMessage, Module, ModuleDefs, PatchState, ServerMessage,
+  UndoInfo,
 } from './protocol';
 import { type AreaView, MODULE_COLORS, moduleIcon, renderArea } from './graph';
 
@@ -10,6 +11,8 @@ const patchNameEl = $('patchname');
 const perfInfoEl = $('perfinfo');
 const variationsEl = $('variations');
 const slotsEl = $('slots');
+const undoBtn = $('undobtn') as HTMLButtonElement;
+const redoBtn = $('redobtn') as HTMLButtonElement;
 const bankListEl = $('banklist');
 const paramsBodyEl = $('paramsbody');
 
@@ -129,6 +132,9 @@ function handle(msg: ServerMessage) {
         renderPatch(currentPatch);
       }
       break;
+    case 'undoState':
+      renderUndoState(msg);
+      break;
     case 'selectionCopied':
       // Kommt nach den moduleAdded/cableAdded der Kopie: frische Kopien auswählen,
       // damit man sie direkt verschieben/erneut kopieren kann.
@@ -235,6 +241,7 @@ function renderPatch(p: PatchState) {
   currentVariation = p.variation;
   renderSlots(p);
   renderVariations();
+  if (p.undo) renderUndoState(p.undo);
 
   patchEl.innerHTML = '';
   areaViews.clear();
@@ -435,6 +442,28 @@ function applyZoom() {
   });
 }
 
+// Sprechende Labels für die Undo-Tooltips (Server schickt die Methodennamen)
+const UNDO_LABELS: Record<string, string> = {
+  moveModule: 'Modul verschieben', moveModules: 'Selektion verschieben',
+  addModule: 'Modul anlegen', deleteModule: 'Modul löschen',
+  deleteModules: 'Selektion löschen', copyModule: 'Modul kopieren',
+  copySelection: 'Selektion kopieren', addCable: 'Kabel anlegen',
+  deleteCable: 'Kabel löschen', renameModule: 'Modul umbenennen',
+  setModuleColor: 'Modulfarbe ändern',
+};
+
+function renderUndoState(u: UndoInfo) {
+  const label = (l?: string) => (l && UNDO_LABELS[l]) || l || '';
+  undoBtn.disabled = !u.undoDepth;
+  redoBtn.disabled = !u.redoDepth;
+  undoBtn.title = u.undoDepth
+    ? `Rückgängig: ${label(u.undoLabel)} (${u.undoDepth}) — ⌘Z`
+    : 'Rückgängig (⌘Z)';
+  redoBtn.title = u.redoDepth
+    ? `Wiederholen: ${label(u.redoLabel)} (${u.redoDepth}) — ⇧⌘Z`
+    : 'Wiederholen (⇧⌘Z)';
+}
+
 /** Slot-Leiste A–D: aktiver Slot hervorgehoben, Klick wechselt serverseitig. */
 function renderSlots(p: PatchState) {
   slotsEl.innerHTML = '';
@@ -523,6 +552,8 @@ function esc(s: string): string {
 }
 
 async function init() {
+  undoBtn.onclick = () => send({ type: 'undo' });
+  redoBtn.onclick = () => send({ type: 'redo' });
   try {
     moduleDefs = await (await fetch('/module-defs.json')).json();
     // Datalist für die "+ Modul"-Controls (ein globales Element reicht)

@@ -1,3 +1,30 @@
+# Phase 4b — Ergebnis Teil 9: Undo-Feedback im UI (2026-06-11)
+
+**Status: ✅ Undo/Redo-Buttons mit Label+Tiefe, am echten G2 verifiziert.**
+
+## Verifiziert
+
+- `scripts/ws-undostate-test.py`: patchState trägt `undo{}`, jede Verlaufs-
+  Änderung broadcastet `undoState` (Tiefen + Label der obersten Einträge),
+  undo/redo drehen die Tiefen korrekt, Slot-Wechsel leert auf 0/0
+- Browser: Buttons ↶/↷ im Header starten disabled; Umfärben aktiviert ↶ mit
+  Tooltip „Rückgängig: Modulfarbe ändern (1) — ⌘Z"; Button-Klick stellt die
+  Farbe wieder her und aktiviert ↷
+
+## Umsetzung
+
+- **Backend**: `undoState`-Broadcast nach pushUndo/clearUndo/undo/redo
+  (`{undoDepth, redoDepth, undoLabel?, redoLabel?}`), zusätzlich als `undo{}`
+  im patchState (frische Clients). Labels = interne Aktionsnamen.
+- **Frontend**: Buttons im Header (disabled bei leerem Stack), Label-Mapping
+  auf Deutsch im Client (UNDO_LABELS), Klick sendet undo/redo.
+
+## Offen (→ Teil 10+)
+
+1. Morph-/Patch-Settings, Performance-Mode (in Arbeit).
+
+---
+
 # Phase 4b — Ergebnis Teil 8: Slot-Handling A–D (2026-06-11)
 
 **Status: ✅ Slot-Wechsel A–D (Web → G2), Slot-Leiste im UI, am echten G2 verifiziert.**
