@@ -59,6 +59,12 @@ public interface G2Service {
      */
     void deleteModule(String area, int module);
 
+    /**
+     * Modul duplizieren (Typ, Parameter aller Variationen, Farbe, Name, Labels).
+     * Neuen Index vergibt der Server. Broadcastet "moduleAdded" wie addModule.
+     */
+    void copyModule(String area, int module, int col, int row);
+
     /** Modul umbenennen (max 16 ASCII-Zeichen). Broadcastet "moduleRenamed". */
     void renameModule(String area, int module, String name);
 

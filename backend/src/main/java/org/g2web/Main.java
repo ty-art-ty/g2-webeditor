@@ -89,6 +89,11 @@ public final class Main {
                     case "deleteModule" -> g2.deleteModule(
                             msg.has("area") ? msg.get("area").asText() : "va",
                             msg.get("module").asInt());
+                    case "copyModule" -> g2.copyModule(
+                            msg.has("area") ? msg.get("area").asText() : "va",
+                            msg.get("module").asInt(),
+                            msg.get("col").asInt(),
+                            msg.get("row").asInt());
                     case "renameModule" -> g2.renameModule(
                             msg.has("area") ? msg.get("area").asText() : "va",
                             msg.get("module").asInt(),

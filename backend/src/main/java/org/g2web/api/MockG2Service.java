@@ -81,6 +81,13 @@ public final class MockG2Service implements G2Service {
     }
 
     @Override
+    public void copyModule(String area, int module, int col, int row) {
+        emit(Map.of("type", "moduleAdded", "module", Map.of(
+                "id", 100, "area", area, "typeName", "OscB", "name", "Kopie",
+                "row", row, "col", col, "color", 0, "params", List.of())));
+    }
+
+    @Override
     public void renameModule(String area, int module, String name) {
         emit(Map.of("type", "moduleRenamed", "area", area, "module", module, "name", name));
     }

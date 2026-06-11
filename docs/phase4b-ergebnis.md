@@ -1,3 +1,40 @@
+# Phase 4b — Ergebnis Teil 6: copyModule / Cmd+C+V (2026-06-11)
+
+**Status: ✅ Modul kopieren (inkl. Params/Farbe/Name/Labels) mit Undo, am echten G2 verifiziert.**
+
+## Verifiziert (Skript + Browser gegen echten G2)
+
+- `scripts/ws-copy-test.py`: Quelle präpariert (param0=99, Farbe 7, Name
+  „Quelle"), Kopie übernimmt alles; **Unabhängigkeits-Check**: Param der Kopie
+  auf 11 → Quelle bleibt 99 (Deep-Copy-Falle, s.u.); Undo/Redo; Ausgangszustand
+  wiederhergestellt — Journal sauber
+- Browser: Modul auswählen, Cmd+C/Cmd+V (synthetisch) → Kopie direkt unter der
+  Quelle, Cmd+Z entfernt sie wieder
+
+## Umsetzung
+
+- **Backend `copyModule(area, module, col, row)`**: wie
+  `ModuleDelta.UserModuleRecord.duplicate()`, aber mit **tiefer Kopie der
+  Parameterwerte**: `FieldValues.copy()` ist flach und `setParamValues`
+  übernimmt Referenzen — das Duplikat hätte sonst dieselben VarParams-Objekte
+  wie die Quelle (Param ändern hätte beide geändert). Fix:
+  `ParamValues.mkDefaultParams(src.getVarValues(v), v)` je Variation baut
+  frische FieldValues. Modes/Labels bleiben geteilt (im Web-UI nicht
+  editierbar, im Add-Wire nur gelesen). Rest identisch zu addModule:
+  createModules → Kollisionen → moduleAdded → Undo-Eintrag (delete/restore).
+- **Frontend**: Cmd/Ctrl+C merkt sich das ausgewählte Modul, Cmd/Ctrl+V fügt
+  unter der Quelle ein (row + height). Mehrfach-Paste stapelt sich dank
+  serverseitiger Kollisionslogik von selbst nach unten — kein Paste-Offset-
+  Zähler nötig.
+
+## Offen (→ Teil 7+)
+
+1. Multi-Select (Rechteck/Shift-Klick), Selektion kopieren inkl. interner Kabel.
+2. Morph-/Patch-Settings, Slot-Handling A–D, Performance-Mode.
+3. Undo-Feedback im UI.
+
+---
+
 # Phase 4b — Ergebnis Teil 5: Undo/Redo + Kabel-Hover (2026-06-11)
 
 **Status: ✅ Serverseitiges Undo/Redo über alle Mutationen, am echten G2 verifiziert.**

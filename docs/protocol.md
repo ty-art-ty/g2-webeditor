@@ -70,6 +70,7 @@ daher in alle modulbezogenen Messages. Fehlt es bei `setParam`, nimmt der Server
 { "type": "deleteCable", "area": "va", "from": {"module":1,"conn":0},
   "to": {"module":2,"conn":0}, "fromOutput": true }
 { "type": "addModule", "area": "va", "typeName": "OscB", "col": 0, "row": 35 }
+{ "type": "copyModule", "area": "va", "module": 33, "col": 0, "row": 40 }
 { "type": "deleteModule", "area": "va", "module": 33 }
 { "type": "renameModule", "area": "va", "module": 1, "name": "Osc1" }
 { "type": "setModuleColor", "area": "va", "module": 1, "color": 10 }
@@ -95,6 +96,10 @@ Referenz-Editoren: `S_ADD_MODULE` 0x30 `[30, typeId, loc, index, col, row, 0,
 uprate, isLed, modes…, name]` + Cable-/Param-/Label-/Name-Sektionen mit
 Default-Werten für 10 Variationen). Delete löscht erst alle hängenden Kabel
 (je ein cableDeleted), dann `S_DEL_MODULE` 0x32 `[32, loc, index]`.
+
+**copyModule** (v1): dupliziert ein Modul mit Parametern aller 10 Variationen
+(tiefe Kopie!), Farbe, Name und Custom-Labels; neuen Index vergibt der Server,
+Antwort = `moduleAdded`, Kollisionen wie addModule, Undo = Löschen.
 
 **renameModule/setModuleColor** (v1): Name max 16 ASCII-Zeichen.
 Wire-Formate: `S_SET_MODULE_LABEL` 0x33 `[33, loc, index, name\0]`,

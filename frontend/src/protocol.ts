@@ -66,6 +66,8 @@ export interface DeleteCable {
   type: 'deleteCable'; area: Area; from: CableEnd; to: CableEnd; fromOutput: boolean;
 }
 export interface AddModule { type: 'addModule'; area: Area; typeName: string; col: number; row: number; }
+/** Dupliziert ein Modul (Params/Farbe/Name); Antwort kommt als moduleAdded. */
+export interface CopyModule { type: 'copyModule'; area: Area; module: number; col: number; row: number; }
 export interface DeleteModule { type: 'deleteModule'; area: Area; module: number; }
 export interface RenameModule { type: 'renameModule'; area: Area; module: number; name: string; }
 export interface SetModuleColor { type: 'setModuleColor'; area: Area; module: number; color: number; }
@@ -74,7 +76,8 @@ export interface Undo { type: 'undo'; }
 export interface Redo { type: 'redo'; }
 export type ClientMessage =
   SetParam | SelectVariation | MoveModule | AddCable | DeleteCable |
-  AddModule | DeleteModule | RenameModule | SetModuleColor | Undo | Redo;
+  AddModule | CopyModule | DeleteModule | RenameModule | SetModuleColor |
+  Undo | Redo;
 
 // REST: /api/banks
 export interface BankEntry { slot: number; name: string; category?: number; }

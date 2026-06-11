@@ -549,6 +549,70 @@ public final class G2LibService implements G2Service {
         });
     }
 
+    @Override
+    public void copyModule(String area, int module, int col, int row) {
+        devices.runWithCurrentPerf(p -> {
+            AreaId areaId = "fx".equals(area) ? AreaId.Fx : AreaId.Voice;
+            Patch patch = p.getSelectedPatch();
+            PatchArea pa = patch.getArea(areaId);
+            PatchModule src = pa.getModule(module); // wirft bei unbekanntem Index
+            int index = pa.getModules().stream()
+                    .mapToInt(PatchModule::getIndex).max().orElse(0) + 1;
+            // Wie ModuleDelta.UserModuleRecord.duplicate(), aber mit TIEFER Kopie
+            // der Parameterwerte: FieldValues.copy() ist flach, und setParamValues
+            // übernimmt Referenzen — sonst teilte das Duplikat seine Params mit der
+            // Quelle (Ändern am einen änderte beide). mkDefaultParams baut frische
+            // VarParams aus den aktuellen Werten. (Modes/Labels bleiben geteilt —
+            // im Web-UI derzeit nicht editierbar, im Add-Wire nur gelesen.)
+            List<org.g2fx.g2lib.protocol.FieldValues> paramCopies = null;
+            if (src.getValues() != null) {
+                paramCopies = new ArrayList<>();
+                for (int v = 0; v < PatchModule.MAX_VARIATIONS; v++) {
+                    paramCopies.add(org.g2fx.g2lib.state.ParamValues.mkDefaultParams(
+                            src.getVarValues(v), v));
+                }
+            }
+            var rec = new org.g2fx.g2gui.module.ModuleDelta.UserModuleRecord(
+                    src.name().get(),
+                    src.getUserModuleData().getValues().copy()
+                            .update(org.g2fx.g2lib.protocol.Protocol.UserModule.Index.value(index))
+                            .update(org.g2fx.g2lib.protocol.Protocol.UserModule.Column.value(col))
+                            .update(org.g2fx.g2lib.protocol.Protocol.UserModule.Row.value(row)),
+                    areaId, paramCopies, src.getModuleLabelsValues());
+            List<PatchModule> created = pa.createModules(
+                    new org.g2fx.g2gui.module.ModuleDelta(List.of(rec), List.of(), true));
+            PatchModule m = created.get(0);
+            attachModuleParamListeners(patch.getSlot().name(), area, m);
+            // Ab hier identisch zu addModule: Kollisionen, Emits, Undo
+            Map<Integer, int[]> before = snapshotCoords(pa);
+            before.remove(index);
+            List<PatchModule> pushed = resolveCollisions(pa, index);
+            for (PatchModule c : pushed) {
+                if (c.getIndex() == index) {
+                    patch.getSlotSender().sendSlotRequest("move-module", S_MOV_MODULE,
+                            areaId.ordinal(), index,
+                            c.getUserModuleData().column().get(),
+                            c.getUserModuleData().row().get());
+                } else {
+                    sendMoveAndEmit(patch, areaId, area, c);
+                }
+            }
+            emit(Map.of("type", "moduleAdded", "module", moduleOf(m, area)));
+            var recFinal = new org.g2fx.g2gui.module.ModuleDelta.UserModuleRecord(m);
+            List<int[]> oldMoves = new ArrayList<>(), newMoves = new ArrayList<>();
+            coordDiff(pa, before, oldMoves, newMoves);
+            pushUndo("copyModule",
+                    p2 -> {
+                        deleteModuleInternal(p2, area, index);
+                        applyMoves(p2, area, oldMoves);
+                    },
+                    p2 -> {
+                        restoreModule(p2, area, recFinal, List.of());
+                        applyMoves(p2, area, newMoves);
+                    });
+        });
+    }
+
     /** Schnappschuss eines Kabels fürs Wiederherstellen. */
     private record CableSnap(int fromModule, int fromConn, boolean fromOutput,
                              int toModule, int toConn, int color) {}

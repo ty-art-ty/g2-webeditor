@@ -144,13 +144,36 @@ const findCable = (
     && c.from.module === from.module && c.from.conn === from.conn
     && c.to.module === to.module && c.to.conn === to.conn);
 
+// Modul-Zwischenablage für Cmd+C/Cmd+V (nur Referenz; Quelle kann weg sein)
+let clipboard: { area: Area; id: number } | null = null;
+
 // Entf/Backspace löscht das ausgewählte Kabel, sonst das ausgewählte Modul;
-// Cmd/Ctrl+Z = Undo, +Shift = Redo (nicht aus Eingabefeldern heraus)
+// Cmd/Ctrl+Z = Undo, +Shift = Redo; Cmd/Ctrl+C/V = Modul kopieren/einfügen
+// (nicht aus Eingabefeldern heraus)
 document.addEventListener('keydown', (ev) => {
   if (document.activeElement instanceof HTMLInputElement) return;
   if ((ev.metaKey || ev.ctrlKey) && ev.key.toLowerCase() === 'z') {
     ev.preventDefault();
     send({ type: ev.shiftKey ? 'redo' : 'undo' });
+    return;
+  }
+  if ((ev.metaKey || ev.ctrlKey) && ev.key.toLowerCase() === 'c') {
+    if (selected) {
+      clipboard = { ...selected };
+      ev.preventDefault();
+    }
+    return;
+  }
+  if ((ev.metaKey || ev.ctrlKey) && ev.key.toLowerCase() === 'v') {
+    const src = clipboard && findModule(clipboard.area, clipboard.id);
+    if (src) {
+      ev.preventDefault();
+      // Direkt unter die Quelle; wiederholtes Einfügen stapelt sich dank
+      // serverseitiger Kollisionslogik von selbst nach unten.
+      const h = moduleDefs[src.typeName]?.height ?? 2;
+      send({ type: 'copyModule', area: src.area, module: src.id,
+             col: src.col, row: src.row + h });
+    }
     return;
   }
   if (ev.key !== 'Delete' && ev.key !== 'Backspace') return;
