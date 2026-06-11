@@ -60,6 +60,49 @@ function cablePath(a: { x: number; y: number }, b: { x: number; y: number }): st
   return `M ${a.x} ${a.y} Q ${a.x + dx / 2} ${Math.max(a.y, b.y) + sag} ${b.x} ${b.y}`;
 }
 
+/**
+ * Drag&Drop mit Grid-Snap; ein Klick ohne Bewegung (<0.5 Zelle) ist Auswahl.
+ * Während des Drags wird nur die Modul-Gruppe verschoben (Kabel folgen erst
+ * mit dem moduleMoved-Re-Render — Server ist Single Source of Truth).
+ */
+function attachDrag(
+  g: SVGGElement, svg: SVGSVGElement, m: Module,
+  onSelect: (m: Module) => void,
+  onMove: (m: Module, col: number, row: number) => void,
+) {
+  g.addEventListener('pointerdown', (down) => {
+    if (down.button !== 0) return;
+    down.preventDefault();
+    g.setPointerCapture(down.pointerId);
+    // Client-px -> Area-Koordinaten (berücksichtigt Zoom über width/viewBox)
+    const scale = svg.viewBox.baseVal.width / svg.getBoundingClientRect().width;
+    let dCol = 0, dRow = 0, moved = false;
+
+    const onPointerMove = (ev: PointerEvent) => {
+      dCol = Math.round((ev.clientX - down.clientX) * scale / GRID_X);
+      dRow = Math.round((ev.clientY - down.clientY) * scale / GRID_Y);
+      const col = Math.max(0, m.col + dCol), row = Math.max(0, m.row + dRow);
+      if (col !== m.col || row !== m.row) moved = true;
+      g.setAttribute('transform', `translate(${col * GRID_X},${row * GRID_Y})`);
+      g.setAttribute('opacity', moved ? '0.7' : '1');
+    };
+    const onPointerUp = () => {
+      g.removeEventListener('pointermove', onPointerMove);
+      g.removeEventListener('pointerup', onPointerUp);
+      g.setAttribute('opacity', '1');
+      const col = Math.max(0, m.col + dCol), row = Math.max(0, m.row + dRow);
+      if (moved && (col !== m.col || row !== m.row)) {
+        onMove(m, col, row); // Bestätigung kommt als moduleMoved + Re-Render
+      } else {
+        g.setAttribute('transform', `translate(${m.col * GRID_X},${m.row * GRID_Y})`);
+        onSelect(m);
+      }
+    };
+    g.addEventListener('pointermove', onPointerMove);
+    g.addEventListener('pointerup', onPointerUp);
+  });
+}
+
 export interface AreaView {
   svg: SVGSVGElement;
   /** Auswahl-Hervorhebung setzen (moduleId oder null). */
@@ -69,6 +112,7 @@ export interface AreaView {
 export function renderArea(
   area: Area, modules: Module[], cables: Cable[], defs: ModuleDefs,
   onSelect: (m: Module) => void,
+  onMove: (m: Module, col: number, row: number) => void,
 ): AreaView {
   const byId = new Map(modules.map((m) => [m.id, m]));
   const cols = Math.max(...modules.map((m) => m.col), 0) + 1;
@@ -110,7 +154,7 @@ export function renderArea(
         }
       }
     }
-    g.addEventListener('click', () => onSelect(m));
+    attachDrag(g, svg, m, onSelect, onMove);
     groups.set(m.id, g);
     modLayer.appendChild(g);
   }

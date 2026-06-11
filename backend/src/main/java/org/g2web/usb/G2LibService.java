@@ -44,6 +44,9 @@ public final class G2LibService implements G2Service {
     private static final String[] CABLE_COLORS =
             {"red", "blue", "yellow", "orange", "green", "purple", "white"};
 
+    /** S_MOV_MODULE der Referenz-Editoren — fehlt in g2lib {@code Codes}. */
+    private static final int S_MOV_MODULE = 0x34;
+
     private final Devices devices;
     private final List<Consumer<Map<String, Object>>> listeners = new CopyOnWriteArrayList<>();
 
@@ -190,6 +193,32 @@ public final class G2LibService implements G2Service {
         });
         // Kein explizites emit: der Listener auf patchSettings.variation()
         // (attachPatchListeners) broadcastet die Änderung bereits.
+    }
+
+    @Override
+    public void moveModule(String area, int module, int col, int row) {
+        devices.runWithCurrentPerf(p -> {
+            AreaId areaId = "fx".equals(area) ? AreaId.Fx : AreaId.Voice;
+            Patch patch = p.getSelectedPatch();
+            PatchModule m = patch.getArea(areaId).getModule(module);
+            if (m == null) throw new IllegalArgumentException(
+                    "Unbekanntes Modul: " + area + "/" + module);
+            // Lokalen State setzen — column()/row() sind intFieldProperty und senden
+            // NICHT (gleiche Falle wie variation, siehe docs/phase3-ergebnis.md) …
+            m.getUserModuleData().column().set(col);
+            m.getUserModuleData().row().set(row);
+            // … daher explizit als Slot-Request ans Gerät. Wire-Format wie die
+            // Referenz-Editoren (BVerhue S_MOV_MODULE=0x34, G2-Edit usbComms.c):
+            //   [01, 0x28+slot, version, 0x34, location(FX=0/VA=1), index, col, row]
+            // AreaId-Ordinals (Fx=0, Voice=1) entsprechen der Protokoll-Location.
+            patch.getSlotSender().sendSlotRequest("move-module",
+                    S_MOV_MODULE, areaId.ordinal(), module, col, row);
+        });
+        // Kein g2lib-Listener auf coords -> selbst broadcasten. Optimistisch:
+        // G2-Antwort (0x7f OK / 0x7e Error) läuft async über den Dispatcher und
+        // landet nur im Log — bei Verdacht journalctl prüfen (vgl. Variation-Lehrstück).
+        emit(Map.of("type", "moduleMoved", "area", area,
+                "module", module, "col", col, "row", row));
     }
 
     @Override

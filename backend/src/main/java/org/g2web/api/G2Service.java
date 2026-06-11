@@ -28,6 +28,12 @@ public interface G2Service {
 
     void selectVariation(int variation);
 
+    /**
+     * Modul auf neue Grid-Position verschieben (col = Spalte à 255 px, row à 15 px).
+     * Implementierung sendet ans Gerät und broadcastet danach "moduleMoved".
+     */
+    void moveModule(String area, int module, int col, int row);
+
     /** Events vom G2 (Param-Änderungen am Gerät, Patch-Wechsel, Connect/Disconnect). */
     void onEvent(Consumer<Map<String, Object>> listener);
 }

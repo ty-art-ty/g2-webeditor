@@ -62,6 +62,11 @@ public final class Main {
                             msg.get("value").asInt(),
                             msg.get("variation").asInt());
                     case "selectVariation" -> g2.selectVariation(msg.get("variation").asInt());
+                    case "moveModule" -> g2.moveModule(
+                            msg.has("area") ? msg.get("area").asText() : "va",
+                            msg.get("module").asInt(),
+                            msg.get("col").asInt(),
+                            msg.get("row").asInt());
                     default -> { /* unbekannte Message ignorieren, siehe docs/protocol.md */ }
                 }
             });

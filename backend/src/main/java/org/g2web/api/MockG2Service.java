@@ -46,6 +46,12 @@ public final class MockG2Service implements G2Service {
     @Override public void loadPatch(int bank, int slot) { emit(getPatchState()); }
 
     @Override
+    public void moveModule(String area, int module, int col, int row) {
+        emit(Map.of("type", "moduleMoved", "area", area,
+                "module", module, "col", col, "row", row));
+    }
+
+    @Override
     public void setParam(String area, int module, int param, int value, int var) {
         params.put(module + ":" + param, value);
         emit(Map.of("type", "paramChanged", "area", area, "module", module, "param", param,

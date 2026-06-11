@@ -61,6 +61,15 @@ function handle(msg: ServerMessage) {
       }
       break;
     }
+    case 'moduleMoved': {
+      const mod = findModule(msg.area, msg.module);
+      if (mod && currentPatch) {
+        mod.col = msg.col;
+        mod.row = msg.row;
+        renderPatch(currentPatch); // Kabel folgen mit
+      }
+      break;
+    }
     case 'variationChanged':
       currentVariation = msg.variation;
       renderVariations();
@@ -97,7 +106,9 @@ function renderPatch(p: PatchState) {
     title.appendChild(zoomControls());
     patchEl.appendChild(title);
 
-    const view = renderArea(area, mods, p.cables ?? [], moduleDefs, (m) => selectModule(m));
+    const view = renderArea(area, mods, p.cables ?? [], moduleDefs,
+      (m) => selectModule(m),
+      (m, col, row) => send({ type: 'moveModule', area: m.area, module: m.id, col, row }));
     areaViews.set(area, view);
     patchEl.appendChild(view.svg);
   }

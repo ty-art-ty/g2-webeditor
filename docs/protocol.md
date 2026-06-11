@@ -34,6 +34,9 @@ TypeScript-Spiegel: `frontend/src/protocol.ts` — beide synchron halten.
 
 { "type": "variationChanged", "variation": 2, "slot": "A" }
 
+// Modul wurde verschoben (von irgendeinem Client; Server hat ans Gerät gesendet)
+{ "type": "moduleMoved", "area": "va", "module": 1, "col": 3, "row": 7 }
+
 // G2 per USB verbunden/getrennt
 { "type": "connection", "connected": true }
 ```
@@ -46,11 +49,16 @@ daher in alle modulbezogenen Messages. Fehlt es bei `setParam`, nimmt der Server
 ```jsonc
 { "type": "setParam", "area": "va", "module": 1, "param": 0, "value": 72, "variation": 0 }
 { "type": "selectVariation", "variation": 2 }
+{ "type": "moveModule", "area": "va", "module": 1, "col": 3, "row": 7 }
 ```
+
+**moveModule** (v1, erster Mutations-Befehl): Wire-Format am G2 ist
+`S_MOV_MODULE` 0x34 als Slot-Request `[01, 0x28+slot, version, 34, location, index, col, row]`
+mit location FX=0/VA=1 (Quelle: BVerhue `BVE.NMG2Mess.pas`, G2-Edit `usbComms.c`).
 
 ## Geplante Erweiterungen (v1, Phase 4)
 
-`addModule`, `deleteModule`, `moveModule`, `addCable`, `deleteCable`, `setMorph`,
+`addModule`, `deleteModule`, `addCable`, `deleteCable`, `setMorph`,
 `patchSettings`, Slot-Handling (A–D), Performance-Mode. Konvention: Client-Mutationen
 werden vom Server validiert, an den G2 geschickt und erst nach Bestätigung an alle
 Clients gebroadcastet (Server = Single Source of Truth).

@@ -32,13 +32,20 @@ export interface ParamChanged {
 }
 export interface VariationChanged { type: 'variationChanged'; variation: number; slot?: string; }
 export interface Connection { type: 'connection'; connected: boolean; }
-export type ServerMessage = PatchState | ParamChanged | VariationChanged | Connection;
+export interface ModuleMoved {
+  type: 'moduleMoved'; area: Area; module: number; col: number; row: number;
+}
+export type ServerMessage =
+  PatchState | ParamChanged | VariationChanged | Connection | ModuleMoved;
 
 export interface SetParam {
   type: 'setParam'; area: Area; module: number; param: number; value: number; variation: number;
 }
 export interface SelectVariation { type: 'selectVariation'; variation: number; }
-export type ClientMessage = SetParam | SelectVariation;
+export interface MoveModule {
+  type: 'moveModule'; area: Area; module: number; col: number; row: number;
+}
+export type ClientMessage = SetParam | SelectVariation | MoveModule;
 
 // REST: /api/banks
 export interface BankEntry { slot: number; name: string; category?: number; }
