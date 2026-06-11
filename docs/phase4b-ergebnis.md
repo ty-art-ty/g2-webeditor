@@ -1,3 +1,63 @@
+# Phase 4b — Ergebnis Teil 2: addCable/deleteCable (2026-06-11)
+
+**Status: ✅ Kabel anlegen (Port-Drag) und löschen (Klick + Entf) fertig, am echten G2 verifiziert.**
+
+## Verifiziert (Mac-Chrome per IP + Skript gegen echten G2)
+
+- `scripts/ws-cable-test.py` (läuft auf dem Gerät): bestehendes Kabel löschen →
+  `cableDeleted`, wieder anlegen → `cableAdded` (Farbe red), doppeltes addCable
+  idempotent — alles grün, Journal ohne 0x7e/Exceptions
+- Browser: Drag von Out va/2:0 nach In va/3:0 legt Kabel an (Server-State + Render),
+  Klick aufs Kabel wählt aus (Strichstärke 5), Entf löscht; Patch danach exakt
+  im Originalzustand (Diff gegen Bank-Reload leer)
+
+## Umsetzung
+
+- **Wire-Formate** (BVerhue `BVE.NMG2Mess.pas` ~4310/4380, G2-Edit `usbComms.c`
+  ~1609/1704 — byte-identisch), beide als Slot-Request wie moveModule:
+  - `S_ADD_CABLE 0x50`: `[50, 10|loc<<3|farbe, fromMod, fromKind<<6|fromConn, toMod, toConn]`
+  - `S_DEL_CABLE 0x51`: `[51, 02|loc, fromMod, fromKind<<6|fromConn, toMod, toKind<<6|toConn]`
+  - Kind Input=0/Output=1; `to` immer Input; In-zu-In-Kabel = fromKind 0
+- **Farbe**: Server bestimmt sie aus dem Quell-Connector (g2lib ModuleType
+  in/outPorts). Vereinfachung ohne Uprate-Logik: Red/Blue_red→0 rot, Blue→1 blau,
+  Yellow/Yellow_orange→2 gelb. (Referenz-Editoren färben Blue_red je nach Uprate.)
+- **Backend**: `G2LibService.addCable/deleteCable` — lokalen State über
+  `PatchArea.addCable(FieldValues)` bzw. `getCables().remove()` pflegen (g2lib
+  hat keine sendende Mutations-API), dann explizit `sendSlotRequest`, dann selbst
+  `cableAdded`/`cableDeleted` emitten. addCable idempotent (Duplikat → no-op).
+- **Frontend** (`graph.ts`): Ports tragen `data-module/conn/out` + Cable-Drag
+  (Gummiband im Overlay-Layer, `stopPropagation` gegen Modul-Drag); Drop-Ziel via
+  `elementFromPoint().closest('[data-conn]')`, In→Out wird gedreht, Out→Out verworfen.
+  Kabel: sichtbarer Pfad + 9px-Hit-Pfad; Klick wählt aus, Entf/Backspace löscht
+  (main.ts, nicht aus Inputs heraus). Re-Render via `cableAdded`/`cableDeleted`.
+
+## Stolpersteine
+
+- **Hit-Pfad verdeckte Ports**: cableLayer liegt über modLayer; der breite
+  unsichtbare Kabel-Hit-Pfad fing pointerdown an Kabel-Endpunkten ab → Ports an
+  belegten Connectors waren nicht greifbar. Fix: `cableHitPath()` kürzt die
+  Bezier an beiden Enden (t 0.08–0.92, als Polyline gesampelt).
+- **Hit-Pfade überlappen sich**: Klick auf einen Kabel-Scheitel kann ein anderes,
+  kreuzendes Kabel treffen — beim Testen so ein falsches Kabel gelöscht (per
+  Bank-Reload restauriert). Für Nutzer ok (Auswahl-Highlight vor Entf sichtbar);
+  Backlog: Hover-Feedback/engere Hit-Breite.
+- **Claude-in-Chrome** (Test-Werkzeug): `left_click_drag` liefert nur
+  `pointermove`, kein `pointerdown/up` → Port-Drags damit nicht testbar; Klicks
+  und Tasten gehen. Workaround: synthetische `PointerEvent`s per JS dispatchen —
+  dabei Element-Referenzen NACH dem letzten Re-Render holen (stale Nodes:
+  `closest('svg') !== svg`-Guard verwirft den Drop still).
+- Kabelfarbe kann sich beim Wiederanlegen ändern (s. Farb-Vereinfachung) —
+  kosmetisch, der G2 übernimmt die gesendete Farbe.
+
+## Offen (→ Teil 3+)
+
+1. addModule/deleteModule (g2gui `AreaPane.doAddModule`; Namens-String im
+   Add-Kommando, vgl. G2-Edit eMsgCmdWriteModule).
+2. Kollisionserkennung beim Drop (g2gui `resolveCollisions`).
+3. Multi-Select-Drag, Copy/Paste; Kabel-Hover-Feedback.
+
+---
+
 # Phase 4b — Ergebnis Teil 1: moveModule (2026-06-11)
 
 **Status: ✅ Erste Mutation (Modul verschieben) fertig, am echten G2 verifiziert.**

@@ -67,6 +67,20 @@ public final class Main {
                             msg.get("module").asInt(),
                             msg.get("col").asInt(),
                             msg.get("row").asInt());
+                    case "addCable" -> g2.addCable(
+                            msg.has("area") ? msg.get("area").asText() : "va",
+                            msg.get("from").get("module").asInt(),
+                            msg.get("from").get("conn").asInt(),
+                            !msg.has("fromOutput") || msg.get("fromOutput").asBoolean(),
+                            msg.get("to").get("module").asInt(),
+                            msg.get("to").get("conn").asInt());
+                    case "deleteCable" -> g2.deleteCable(
+                            msg.has("area") ? msg.get("area").asText() : "va",
+                            msg.get("from").get("module").asInt(),
+                            msg.get("from").get("conn").asInt(),
+                            !msg.has("fromOutput") || msg.get("fromOutput").asBoolean(),
+                            msg.get("to").get("module").asInt(),
+                            msg.get("to").get("conn").asInt());
                     default -> { /* unbekannte Message ignorieren, siehe docs/protocol.md */ }
                 }
             });

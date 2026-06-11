@@ -46,6 +46,9 @@ public final class G2LibService implements G2Service {
 
     /** S_MOV_MODULE der Referenz-Editoren — fehlt in g2lib {@code Codes}. */
     private static final int S_MOV_MODULE = 0x34;
+    /** S_ADD_CABLE/S_DEL_CABLE der Referenz-Editoren — fehlen in g2lib {@code Codes}. */
+    private static final int S_ADD_CABLE = 0x50;
+    private static final int S_DEL_CABLE = 0x51;
 
     private final Devices devices;
     private final List<Consumer<Map<String, Object>>> listeners = new CopyOnWriteArrayList<>();
@@ -219,6 +222,95 @@ public final class G2LibService implements G2Service {
         // landet nur im Log — bei Verdacht journalctl prüfen (vgl. Variation-Lehrstück).
         emit(Map.of("type", "moduleMoved", "area", area,
                 "module", module, "col", col, "row", row));
+    }
+
+    @Override
+    public void addCable(String area, int fromModule, int fromConn, boolean fromOutput,
+                         int toModule, int toConn) {
+        devices.runWithCurrentPerf(p -> {
+            AreaId areaId = "fx".equals(area) ? AreaId.Fx : AreaId.Voice;
+            PatchArea pa = p.getSelectedPatch().getArea(areaId);
+            PatchModule from = pa.getModule(fromModule); // wirft bei unbekanntem Index
+            pa.getModule(toModule);
+            if (findCable(pa, fromModule, fromConn, toModule, toConn) != null) {
+                return; // existiert schon — idempotent, kein Senden/Broadcast
+            }
+            int color = cableColorOf(from, fromConn, fromOutput);
+            // Lokalen State pflegen (g2lib hat keine Mutations-API mit Senden) …
+            pa.addCable(org.g2fx.g2lib.protocol.Protocol.Cable.FIELDS.values(
+                    org.g2fx.g2lib.protocol.Protocol.Cable.Color.value(color),
+                    org.g2fx.g2lib.protocol.Protocol.Cable.SrcModule.value(fromModule),
+                    org.g2fx.g2lib.protocol.Protocol.Cable.SrcConn.value(fromConn),
+                    org.g2fx.g2lib.protocol.Protocol.Cable.Direction.value(fromOutput),
+                    org.g2fx.g2lib.protocol.Protocol.Cable.DestModule.value(toModule),
+                    org.g2fx.g2lib.protocol.Protocol.Cable.DestConn.value(toConn)));
+            // … und explizit ans Gerät. Wire-Format (BVerhue AddConnectionMessage,
+            // G2-Edit eMsgCmdWriteCable — byte-identisch):
+            //   [0x50, 0x10|loc<<3|farbe, fromMod, fromKind<<6|fromConn, toMod, toConn]
+            // Kind: Input=0/Output=1; to ist immer Input (Kind 0). Location FX=0/VA=1.
+            p.getSelectedPatch().getSlotSender().sendSlotRequest("add-cable",
+                    S_ADD_CABLE,
+                    0x10 | (areaId.ordinal() << 3) | color,
+                    fromModule, ((fromOutput ? 1 : 0) << 6) | fromConn,
+                    toModule, toConn);
+            emit(Map.of("type", "cableAdded", "area", area,
+                    "from", Map.of("module", fromModule, "conn", fromConn),
+                    "to", Map.of("module", toModule, "conn", toConn),
+                    "fromOutput", fromOutput, "color", cableColor(color)));
+        });
+    }
+
+    @Override
+    public void deleteCable(String area, int fromModule, int fromConn, boolean fromOutput,
+                            int toModule, int toConn) {
+        devices.runWithCurrentPerf(p -> {
+            AreaId areaId = "fx".equals(area) ? AreaId.Fx : AreaId.Voice;
+            PatchArea pa = p.getSelectedPatch().getArea(areaId);
+            PatchCable cable = findCable(pa, fromModule, fromConn, toModule, toConn);
+            if (cable == null) throw new IllegalArgumentException(
+                    "Unbekanntes Kabel: " + area + " " + fromModule + ":" + fromConn
+                            + " -> " + toModule + ":" + toConn);
+            pa.getCables().remove(cable);
+            // Wire-Format (BVerhue AddDeleteConnectionMessage, G2-Edit eMsgCmdDeleteCable):
+            //   [0x51, 0x02|loc, fromMod, fromKind<<6|fromConn, toMod, toKind<<6|toConn]
+            p.getSelectedPatch().getSlotSender().sendSlotRequest("delete-cable",
+                    S_DEL_CABLE,
+                    0x02 | areaId.ordinal(),
+                    fromModule, ((fromOutput ? 1 : 0) << 6) | fromConn,
+                    toModule, toConn);
+            emit(Map.of("type", "cableDeleted", "area", area,
+                    "from", Map.of("module", fromModule, "conn", fromConn),
+                    "to", Map.of("module", toModule, "conn", toConn)));
+        });
+    }
+
+    /** Kabel anhand seiner Endpunkte suchen (Identität wie im patchState). */
+    private static PatchCable findCable(PatchArea pa, int fromModule, int fromConn,
+                                        int toModule, int toConn) {
+        for (PatchCable c : pa.getCables()) {
+            if (c.getSrcModule() == fromModule && c.getSrcConn() == fromConn
+                    && c.getDestModule() == toModule && c.getDestConn() == toConn) {
+                return c;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Kabelfarbe aus dem Quell-Connector (g2lib ModuleType-Ports). Vereinfachung
+     * gegenüber den Referenz-Editoren: keine Uprate-Logik — Blue_red (dynamische
+     * Audio-Outs) wird rot, Yellow_orange gelb. Farbe ist rein kosmetisch.
+     */
+    private static int cableColorOf(PatchModule from, int conn, boolean output) {
+        List<org.g2fx.g2lib.model.Connector> ports = output
+                ? from.getUserModuleData().getType().outPorts
+                : from.getUserModuleData().getType().inPorts;
+        if (conn < 0 || conn >= ports.size()) return 1; // unbekannt -> blau
+        return switch (ports.get(conn).color()) {
+            case Red, Blue_red -> 0;          // rot
+            case Blue -> 1;                   // blau
+            case Yellow, Yellow_orange -> 2;  // gelb
+        };
     }
 
     @Override

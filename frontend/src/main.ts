@@ -1,5 +1,5 @@
 import type {
-  Area, Bank, ClientMessage, Module, ModuleDefs, PatchState, ServerMessage,
+  Area, Bank, Cable, ClientMessage, Module, ModuleDefs, PatchState, ServerMessage,
 } from './protocol';
 import { type AreaView, moduleIcon, renderArea } from './graph';
 
@@ -17,6 +17,7 @@ let currentVariation = 0;
 let currentPatch: PatchState | null = null;
 let moduleDefs: ModuleDefs = {};
 let selected: { area: Area; id: number } | null = null;
+let selectedCable: Cable | null = null;
 let zoom = 1;
 const areaViews = new Map<Area, AreaView>();
 let ws: WebSocket;
@@ -70,6 +71,22 @@ function handle(msg: ServerMessage) {
       }
       break;
     }
+    case 'cableAdded':
+      if (currentPatch && !findCable(msg.area, msg.from, msg.to)) {
+        currentPatch.cables.push({ area: msg.area, from: msg.from, to: msg.to,
+          fromOutput: msg.fromOutput, color: msg.color });
+        renderPatch(currentPatch);
+      }
+      break;
+    case 'cableDeleted':
+      if (currentPatch) {
+        currentPatch.cables = currentPatch.cables.filter((c) =>
+          !(c.area === msg.area
+            && c.from.module === msg.from.module && c.from.conn === msg.from.conn
+            && c.to.module === msg.to.module && c.to.conn === msg.to.conn));
+        renderPatch(currentPatch);
+      }
+      break;
     case 'variationChanged':
       currentVariation = msg.variation;
       renderVariations();
@@ -84,10 +101,29 @@ function handle(msg: ServerMessage) {
 const findModule = (area: Area, id: number): Module | undefined =>
   currentPatch?.modules.find((m) => m.area === area && m.id === id);
 
+const findCable = (
+  area: Area, from: { module: number; conn: number }, to: { module: number; conn: number },
+): Cable | undefined =>
+  currentPatch?.cables.find((c) => c.area === area
+    && c.from.module === from.module && c.from.conn === from.conn
+    && c.to.module === to.module && c.to.conn === to.conn);
+
+// Entf/Backspace löscht das ausgewählte Kabel (nicht aus Eingabefeldern heraus)
+document.addEventListener('keydown', (ev) => {
+  if (ev.key !== 'Delete' && ev.key !== 'Backspace') return;
+  if (document.activeElement instanceof HTMLInputElement) return;
+  if (!selectedCable) return;
+  send({ type: 'deleteCable', area: selectedCable.area,
+    from: selectedCable.from, to: selectedCable.to,
+    fromOutput: selectedCable.fromOutput ?? true });
+  selectedCable = null; // Bestätigung kommt als cableDeleted + Re-Render
+});
+
 // ---------------------------------------------------------------- Rendering
 
 function renderPatch(p: PatchState) {
   currentPatch = p;
+  selectedCable = null; // Re-Render verwirft die Kabel-Hervorhebung
   document.title = `G2: ${p.name}`;
   patchNameEl.textContent = p.name || '—';
   perfInfoEl.textContent = `${p.perf} · Slot ${p.slot}`;
@@ -108,7 +144,9 @@ function renderPatch(p: PatchState) {
 
     const view = renderArea(area, mods, p.cables ?? [], moduleDefs,
       (m) => selectModule(m),
-      (m, col, row) => send({ type: 'moveModule', area: m.area, module: m.id, col, row }));
+      (m, col, row) => send({ type: 'moveModule', area: m.area, module: m.id, col, row }),
+      (from, fromOutput, to) => send({ type: 'addCable', area, from, to, fromOutput }),
+      (c) => { selectedCable = c; });
     areaViews.set(area, view);
     patchEl.appendChild(view.svg);
   }
@@ -122,7 +160,11 @@ function renderPatch(p: PatchState) {
 
 function selectModule(m: Module) {
   selected = { area: m.area, id: m.id };
-  areaViews.forEach((v, area) => v.select(area === m.area ? m.id : null));
+  selectedCable = null;
+  areaViews.forEach((v, area) => {
+    v.select(area === m.area ? m.id : null);
+    v.clearCableSelection();
+  });
   renderParamPanel(m);
 }
 

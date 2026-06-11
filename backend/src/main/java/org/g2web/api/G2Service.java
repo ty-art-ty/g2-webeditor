@@ -34,6 +34,18 @@ public interface G2Service {
      */
     void moveModule(String area, int module, int col, int row);
 
+    /**
+     * Kabel hinzufügen. {@code to} ist immer ein Input; {@code fromOutput}=false
+     * bedeutet In-zu-In-Kabel. Kabelfarbe bestimmt der Server aus dem Quell-Connector.
+     * Implementierung sendet ans Gerät und broadcastet danach "cableAdded".
+     */
+    void addCable(String area, int fromModule, int fromConn, boolean fromOutput,
+                  int toModule, int toConn);
+
+    /** Kabel löschen (Identität wie in patchState). Broadcastet danach "cableDeleted". */
+    void deleteCable(String area, int fromModule, int fromConn, boolean fromOutput,
+                     int toModule, int toConn);
+
     /** Events vom G2 (Param-Änderungen am Gerät, Patch-Wechsel, Connect/Disconnect). */
     void onEvent(Consumer<Map<String, Object>> listener);
 }

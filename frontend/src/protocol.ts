@@ -35,8 +35,17 @@ export interface Connection { type: 'connection'; connected: boolean; }
 export interface ModuleMoved {
   type: 'moduleMoved'; area: Area; module: number; col: number; row: number;
 }
+export interface CableEnd { module: number; conn: number; }
+export interface CableAdded {
+  type: 'cableAdded'; area: Area; from: CableEnd; to: CableEnd;
+  fromOutput: boolean; color: string;
+}
+export interface CableDeleted {
+  type: 'cableDeleted'; area: Area; from: CableEnd; to: CableEnd;
+}
 export type ServerMessage =
-  PatchState | ParamChanged | VariationChanged | Connection | ModuleMoved;
+  PatchState | ParamChanged | VariationChanged | Connection | ModuleMoved |
+  CableAdded | CableDeleted;
 
 export interface SetParam {
   type: 'setParam'; area: Area; module: number; param: number; value: number; variation: number;
@@ -45,7 +54,14 @@ export interface SelectVariation { type: 'selectVariation'; variation: number; }
 export interface MoveModule {
   type: 'moveModule'; area: Area; module: number; col: number; row: number;
 }
-export type ClientMessage = SetParam | SelectVariation | MoveModule;
+export interface AddCable {
+  type: 'addCable'; area: Area; from: CableEnd; to: CableEnd; fromOutput: boolean;
+}
+export interface DeleteCable {
+  type: 'deleteCable'; area: Area; from: CableEnd; to: CableEnd; fromOutput: boolean;
+}
+export type ClientMessage =
+  SetParam | SelectVariation | MoveModule | AddCable | DeleteCable;
 
 // REST: /api/banks
 export interface BankEntry { slot: number; name: string; category?: number; }

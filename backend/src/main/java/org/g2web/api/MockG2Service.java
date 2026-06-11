@@ -52,6 +52,23 @@ public final class MockG2Service implements G2Service {
     }
 
     @Override
+    public void addCable(String area, int fromModule, int fromConn, boolean fromOutput,
+                         int toModule, int toConn) {
+        emit(Map.of("type", "cableAdded", "area", area,
+                "from", Map.of("module", fromModule, "conn", fromConn),
+                "to", Map.of("module", toModule, "conn", toConn),
+                "fromOutput", fromOutput, "color", "red"));
+    }
+
+    @Override
+    public void deleteCable(String area, int fromModule, int fromConn, boolean fromOutput,
+                            int toModule, int toConn) {
+        emit(Map.of("type", "cableDeleted", "area", area,
+                "from", Map.of("module", fromModule, "conn", fromConn),
+                "to", Map.of("module", toModule, "conn", toConn)));
+    }
+
+    @Override
     public void setParam(String area, int module, int param, int value, int var) {
         params.put(module + ":" + param, value);
         emit(Map.of("type", "paramChanged", "area", area, "module", module, "param", param,
