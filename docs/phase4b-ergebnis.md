@@ -1,3 +1,43 @@
+# Phase 4b — Ergebnis Teil 12: Morph-/Settings-Panel (2026-06-11)
+
+**Status: ✅ Patch-Settings-Panel (Gain/Glide/Bend/Vibrato/Arpeggiator/Misc +
+8 Morph-Gruppen) und Morph-Zuweisung pro Param, am echten G2 verifiziert.**
+(Backend dafür entstand in Teil 10.)
+
+## Verifiziert (Skript + Browser gegen echten G2, Patch „HipHop beat box")
+
+- `scripts/ws-morph-test.py`: patchState trägt settings (6 Module) + morphs
+  (8 Gruppen mit Labels); setParam(area=settings) GlideSpeed hin/zurück;
+  setMorph: zuweisen (M1 +100), Range negativ (-56, Vorzeichen-Kodierung
+  value/negative am Wire), auf M3 verschieben, Undo (zurück auf M1/-56) /
+  Redo, löschen (range 0) — Ausgangszustand wiederhergestellt
+- Browser: leeres Panel zeigt Patch-Settings — Morph-Dials mit
+  Zuweisungs-Chips („MetNoise1 · Color (+127) | …"), Settings-Gruppen mit
+  Slidern und Enum-Dropdowns (On/Off, 1/16T, Up, …); im Modul-Panel pro Param
+  eine Morph-Zeile (Select – / M1–M8 + Range): Zuweisung auf M2 (+90) und
+  Entfernen („–") greifen am Gerät, Panel folgt via morphChanged
+
+## Umsetzung
+
+- **Frontend**: `renderSettingsPanel()` ersetzt den „Modul anklicken"-Hinweis
+  bei leerer Auswahl; Settings-Params mit enums werden Dropdowns, sonst Slider
+  (gleicher data-attr-Pfad wie Modul-Params -> paramChanged aktualisiert live);
+  Morph-Dials = Params 0–7 des Morphs-Pseudo-Moduls (id 1, area settings).
+  Modul-Panel: `morphRow()` pro Param; „–" oder Range 0 löscht, neuer Select
+  setzt Default-Range 64. morphChanged pflegt currentPatch.morphs (Param hängt
+  an höchstens einem Morph) und rendert das betroffene Panel neu.
+- **Hinweis**: morphChanged trägt keinen Slot — Morph-Edits anderer Clients
+  auf anderen Slots könnten die Anzeige verfälschen (selten; Backlog mit dem
+  Slot-Feld nachrüsten).
+
+## Offen (→ Teil 13+)
+
+1. Performance-Mode.
+2. Graph-Kurven (GraphFunc), LED/VU-Live-Feedback.
+3. Morph-Mode-Toggle (Knob/Morph) im Settings-Panel; Morph-Labels editierbar.
+
+---
+
 # Phase 4b — Ergebnis Teil 11: Original-Modul-Layout (2026-06-11)
 
 **Status: ✅ Modulflächen wie im Clavia-Original — Port-Namen, Texte/Linien/

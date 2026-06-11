@@ -53,7 +53,17 @@ export interface PatchState {
   slots?: { slot: string; name: string }[];
   /** Undo-Verlauf für die Buttons (Tiefen + Label der obersten Einträge). */
   undo?: UndoInfo;
+  /** Patch-Settings: Pseudo-Module der Settings-Area (ohne Morphs). */
+  settings?: SettingsModule[];
+  /** Morph-Gruppen der aktiven Variation (Dial/Mode + Zuweisungen). */
+  morphs?: MorphGroup[];
   modules: Module[]; cables: Cable[];
+}
+export interface SettingsParam extends Param { enums?: string[]; }
+export interface SettingsModule { id: number; name: string; params: SettingsParam[]; }
+export interface MorphAssign { area: ParamArea; module: number; param: number; range: number; }
+export interface MorphGroup {
+  morph: number; label: string; dial: number; mode: number; assigns: MorphAssign[];
 }
 export interface UndoInfo {
   undoDepth: number; redoDepth: number; undoLabel?: string; redoLabel?: string;
@@ -67,6 +77,11 @@ export interface ParamChanged {
 }
 export interface ModeChanged {
   type: 'modeChanged'; slot?: string; area: Area; module: number; mode: number; value: number;
+}
+/** Morph-Zuweisung geändert (range 0 = gelöscht). */
+export interface MorphChanged {
+  type: 'morphChanged'; variation: number; area: ParamArea;
+  module: number; param: number; morph: number; range: number;
 }
 export interface VariationChanged { type: 'variationChanged'; variation: number; slot?: string; }
 export interface Connection { type: 'connection'; connected: boolean; }
@@ -90,7 +105,8 @@ export interface SelectionCopied { type: 'selectionCopied'; area: Area; modules:
 export type ServerMessage =
   PatchState | ParamChanged | VariationChanged | Connection | ModuleMoved |
   CableAdded | CableDeleted | ModuleAdded | ModuleDeleted |
-  ModuleRenamed | ModuleColorChanged | SelectionCopied | UndoState | ModeChanged;
+  ModuleRenamed | ModuleColorChanged | SelectionCopied | UndoState | ModeChanged |
+  MorphChanged;
 
 export interface SetParam {
   type: 'setParam'; area: ParamArea; module: number; param: number; value: number; variation: number;
@@ -98,6 +114,11 @@ export interface SetParam {
 /** Modul-Mode setzen; Antwort = modeChanged. */
 export interface SetMode {
   type: 'setMode'; area: Area; module: number; mode: number; value: number;
+}
+/** Morph-Zuweisung setzen/ändern/löschen (range 0 = löschen, -128…127). */
+export interface SetMorph {
+  type: 'setMorph'; area: ParamArea; module: number; param: number;
+  morph: number; range: number; variation: number;
 }
 export interface SelectVariation { type: 'selectVariation'; variation: number; }
 /** Aktiven Slot wechseln (0–3 = A–D); Antwort = patchState des neuen Slots. */
@@ -133,7 +154,7 @@ export interface SetModuleColor { type: 'setModuleColor'; area: Area; module: nu
 export interface Undo { type: 'undo'; }
 export interface Redo { type: 'redo'; }
 export type ClientMessage =
-  SetParam | SetMode | SelectVariation | SelectSlot | MoveModule | AddCable | DeleteCable |
+  SetParam | SetMode | SetMorph | SelectVariation | SelectSlot | MoveModule | AddCable | DeleteCable |
   AddModule | CopyModule | DeleteModule | RenameModule | SetModuleColor |
   MoveModules | DeleteModules | CopySelection |
   Undo | Redo;

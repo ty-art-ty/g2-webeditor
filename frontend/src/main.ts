@@ -59,15 +59,25 @@ function handle(msg: ServerMessage) {
       // Events tragen den Slot — Änderungen nicht-angezeigter Slots ignorieren
       if (msg.slot && currentPatch && msg.slot !== currentPatch.slot) break;
       if (msg.variation !== currentVariation) break;
-      if (msg.area === 'settings') break; // Settings-Panel folgt später
-      // State nachziehen, damit Re-Renders (Auswahl/Zoom) aktuelle Werte zeigen
-      const mod = findModule(msg.area, msg.module);
-      const p = mod?.params.find((x) => x.id === msg.param);
-      if (p) {
-        p.value = msg.value;
-        if (msg.text !== undefined) p.text = msg.text;
+      if (msg.area === 'settings') {
+        // Patch-Settings/Morph-Dials: State nachziehen (Input via data-attrs unten)
+        const sp = currentPatch?.settings?.find((s) => s.id === msg.module)
+          ?.params.find((x) => x.id === msg.param);
+        if (sp) sp.value = msg.value;
+        if (msg.module === 1 && currentPatch?.morphs) { // Morphs-Pseudo-Modul
+          if (msg.param < 8) currentPatch.morphs[msg.param].dial = msg.value;
+          else if (msg.param < 16) currentPatch.morphs[msg.param - 8].mode = msg.value;
+        }
+      } else {
+        // State nachziehen, damit Re-Renders (Auswahl/Zoom) aktuelle Werte zeigen
+        const mod = findModule(msg.area, msg.module);
+        const p = mod?.params.find((x) => x.id === msg.param);
+        if (p) {
+          p.value = msg.value;
+          if (msg.text !== undefined) p.text = msg.text;
+        }
+        areaViews.get(msg.area)?.updateModule(msg.module); // Modul-Controls nachziehen
       }
-      areaViews.get(msg.area)?.updateModule(msg.module); // Modul-Controls nachziehen
       const input = document.querySelector<HTMLInputElement>(
         `input[data-area="${msg.area}"][data-module="${msg.module}"][data-param="${msg.param}"]`);
       if (input && document.activeElement !== input) {
@@ -82,6 +92,27 @@ function handle(msg: ServerMessage) {
       const md = mod?.modes?.find((x) => x.id === msg.mode);
       if (md) md.value = msg.value;
       areaViews.get(msg.area)?.updateModule(msg.module);
+      break;
+    }
+    case 'morphChanged': {
+      if (msg.variation !== currentVariation || !currentPatch?.morphs) break;
+      // Ein Param hängt an höchstens einem Morph: alte Zuweisung überall raus …
+      for (const g of currentPatch.morphs) {
+        g.assigns = g.assigns.filter((a) => !(a.area === msg.area
+          && a.module === msg.module && a.param === msg.param));
+      }
+      // … neue rein (range 0 = nur löschen)
+      if (msg.range !== 0) {
+        currentPatch.morphs[msg.morph]?.assigns.push({
+          area: msg.area, module: msg.module, param: msg.param, range: msg.range });
+      }
+      // Panel aktualisieren, falls es die Zuweisung anzeigt
+      if (!selected) renderSettingsPanel();
+      else if (selected.ids.length === 1 && selected.area === msg.area
+               && selected.ids[0] === msg.module) {
+        const m = findModule(selected.area, selected.ids[0]);
+        if (m) renderParamPanel(m);
+      }
       break;
     }
     case 'moduleMoved': {
@@ -318,8 +349,7 @@ function applySelection() {
     v.select(new Set(selected?.area === area ? selected.ids : []));
   });
   if (!selected) {
-    paramsBodyEl.className = 'hint';
-    paramsBodyEl.textContent = 'Modul anklicken';
+    renderSettingsPanel(); // keine Auswahl -> Patch-Settings + Morphs
   } else if (selected.ids.length === 1) {
     const m = findModule(selected.area, selected.ids[0]);
     if (m) renderParamPanel(m);
@@ -420,8 +450,53 @@ function renderParamPanel(m: Module) {
              value: Number(input.value), variation: currentVariation });
     };
     div.appendChild(row);
+    div.appendChild(morphRow(m, param.id));
   }
   paramsBodyEl.appendChild(div);
+}
+
+/**
+ * Morph-Zuweisung eines Params: Select (– / M1–M8) + Range (-128…127).
+ * Ein Param hängt an höchstens einem Morph; "–" bzw. Range 0 löscht.
+ */
+function morphRow(m: Module, paramId: number): HTMLElement {
+  const row = document.createElement('div');
+  row.className = 'morphrow';
+  const cur = currentPatch?.morphs?.find((g) => g.assigns.some(
+    (a) => a.area === m.area && a.module === m.id && a.param === paramId));
+  const curAssign = cur?.assigns.find(
+    (a) => a.area === m.area && a.module === m.id && a.param === paramId);
+  const sel = document.createElement('select');
+  sel.innerHTML = '<option value="-1">–</option>'
+    + (currentPatch?.morphs ?? []).map((g) =>
+      `<option value="${g.morph}">M${g.morph + 1} ${esc(g.label)}</option>`).join('');
+  sel.value = String(cur?.morph ?? -1);
+  const rng = document.createElement('input');
+  rng.type = 'number';
+  rng.min = '-128';
+  rng.max = '127';
+  rng.value = String(curAssign?.range ?? 0);
+  rng.onkeydown = (ev) => ev.stopPropagation(); // Entf im Input löscht kein Modul
+  const apply = () => {
+    const morph = Number(sel.value);
+    if (morph < 0) {
+      if (cur) { // Zuweisung entfernen; Bestätigung kommt als morphChanged
+        send({ type: 'setMorph', area: m.area, module: m.id, param: paramId,
+               morph: cur.morph, range: 0, variation: currentVariation });
+      }
+      return;
+    }
+    let range = Number(rng.value) || 0;
+    if (range === 0) { range = 64; rng.value = '64'; } // sinnvoller Startwert
+    send({ type: 'setMorph', area: m.area, module: m.id, param: paramId,
+           morph, range, variation: currentVariation });
+  };
+  sel.onchange = apply;
+  rng.onchange = apply;
+  const lbl = document.createElement('span');
+  lbl.textContent = 'Morph';
+  row.append(lbl, sel, rng);
+  return row;
 }
 
 /** "+ Modul": Typ aus module-defs wählen (datalist) und unten in der Area anlegen. */
@@ -480,7 +555,7 @@ const UNDO_LABELS: Record<string, string> = {
   deleteModules: 'Selektion löschen', copyModule: 'Modul kopieren',
   copySelection: 'Selektion kopieren', addCable: 'Kabel anlegen',
   deleteCable: 'Kabel löschen', renameModule: 'Modul umbenennen',
-  setModuleColor: 'Modulfarbe ändern',
+  setModuleColor: 'Modulfarbe ändern', setMorph: 'Morph-Zuweisung',
 };
 
 function renderUndoState(u: UndoInfo) {
@@ -493,6 +568,88 @@ function renderUndoState(u: UndoInfo) {
   redoBtn.title = u.redoDepth
     ? `Wiederholen: ${label(u.redoLabel)} (${u.redoDepth}) — ⇧⌘Z`
     : 'Wiederholen (⇧⌘Z)';
+}
+
+/** Slider-Zeile (Label + range-Input + Wert) für Settings-Params. */
+function settingsParamRow(moduleId: number, param: { id: number; name: string;
+    value: number; min: number; max: number; enums?: string[] }): HTMLElement {
+  const row = document.createElement('div');
+  row.className = 'param';
+  if (param.enums) {
+    const sel = document.createElement('select');
+    param.enums.forEach((e, ix) => {
+      const o = document.createElement('option');
+      o.value = String(param.min + ix);
+      o.textContent = e;
+      sel.appendChild(o);
+    });
+    sel.value = String(param.value);
+    sel.onchange = () => {
+      param.value = Number(sel.value);
+      send({ type: 'setParam', area: 'settings', module: moduleId, param: param.id,
+             value: Number(sel.value), variation: currentVariation });
+    };
+    const label = document.createElement('label');
+    label.title = param.name;
+    label.textContent = param.name;
+    row.append(label, sel, document.createElement('span'));
+    return row;
+  }
+  row.innerHTML = `<label title="${esc(param.name)}">${esc(param.name)}</label>
+    <input type="range" min="${param.min}" max="${param.max}" value="${param.value}"
+           data-area="settings" data-module="${moduleId}" data-param="${param.id}">
+    <span>${param.value}</span>`;
+  const input = row.querySelector('input')!;
+  input.oninput = () => {
+    row.querySelector('span')!.textContent = input.value;
+    param.value = Number(input.value);
+    send({ type: 'setParam', area: 'settings', module: moduleId, param: param.id,
+           value: Number(input.value), variation: currentVariation });
+  };
+  return row;
+}
+
+/** Patch-Settings + Morph-Gruppen (rechtes Panel, wenn nichts ausgewählt ist). */
+function renderSettingsPanel() {
+  if (!currentPatch?.settings) {
+    paramsBodyEl.className = 'hint';
+    paramsBodyEl.textContent = 'Modul anklicken';
+    return;
+  }
+  paramsBodyEl.className = '';
+  paramsBodyEl.innerHTML = '';
+  const div = document.createElement('div');
+  div.className = 'module';
+  div.innerHTML = '<h3><span class="type">Patch-Settings</span></h3>';
+  if (currentPatch.morphs) {
+    const h = document.createElement('h4');
+    h.textContent = `Morphs (Variation ${currentVariation + 1})`;
+    div.appendChild(h);
+    for (const g of currentPatch.morphs) {
+      // Dial = Param g.morph, Mode = Param 8+g.morph des Morphs-Pseudo-Moduls (id 1)
+      div.appendChild(settingsParamRow(1, {
+        id: g.morph, name: `M${g.morph + 1} ${g.label}`,
+        value: g.dial, min: 0, max: 127 }));
+      if (g.assigns.length) {
+        const chips = document.createElement('div');
+        chips.className = 'morphassigns';
+        chips.textContent = g.assigns.map((a) => {
+          const m = a.area !== 'settings' ? findModule(a.area, a.module) : undefined;
+          const name = m ? (m.name || m.typeName) : `${a.area}/${a.module}`;
+          const pname = m?.params.find((x) => x.id === a.param)?.name ?? `#${a.param}`;
+          return `${name} · ${pname} (${a.range > 0 ? '+' : ''}${a.range})`;
+        }).join('  |  ');
+        div.appendChild(chips);
+      }
+    }
+  }
+  for (const sm of currentPatch.settings) {
+    const h = document.createElement('h4');
+    h.textContent = sm.name;
+    div.appendChild(h);
+    for (const param of sm.params) div.appendChild(settingsParamRow(sm.id, param));
+  }
+  paramsBodyEl.appendChild(div);
 }
 
 /** Slot-Leiste A–D: aktiver Slot hervorgehoben, Klick wechselt serverseitig. */
