@@ -9,6 +9,7 @@ const patchEl = $('patch');
 const patchNameEl = $('patchname');
 const perfInfoEl = $('perfinfo');
 const variationsEl = $('variations');
+const slotsEl = $('slots');
 const bankListEl = $('banklist');
 const paramsBodyEl = $('paramsbody');
 
@@ -51,6 +52,8 @@ function handle(msg: ServerMessage) {
       renderPatch(msg);
       break;
     case 'paramChanged': {
+      // Events tragen den Slot — Änderungen nicht-angezeigter Slots ignorieren
+      if (msg.slot && currentPatch && msg.slot !== currentPatch.slot) break;
       if (msg.variation !== currentVariation) break;
       // State nachziehen, damit Re-Renders (Auswahl/Zoom) aktuelle Werte zeigen
       const mod = findModule(msg.area, msg.module);
@@ -133,6 +136,7 @@ function handle(msg: ServerMessage) {
       applySelection();
       break;
     case 'variationChanged':
+      if (msg.slot && currentPatch && msg.slot !== currentPatch.slot) break;
       currentVariation = msg.variation;
       renderVariations();
       refreshPatch(); // Werte der neuen Variation holen
@@ -217,12 +221,19 @@ document.addEventListener('keydown', (ev) => {
 // ---------------------------------------------------------------- Rendering
 
 function renderPatch(p: PatchState) {
+  // Slot-Wechsel: Auswahl/Zwischenablage gehören zum alten Slot — Modul-Indizes
+  // könnten im neuen Slot zufällig existieren und das Falsche treffen.
+  if (currentPatch && currentPatch.slot !== p.slot) {
+    selected = null;
+    clipboard = null;
+  }
   currentPatch = p;
   selectedCable = null; // Re-Render verwirft die Kabel-Hervorhebung
   document.title = `G2: ${p.name}`;
   patchNameEl.textContent = p.name || '—';
   perfInfoEl.textContent = `${p.perf} · Slot ${p.slot}`;
   currentVariation = p.variation;
+  renderSlots(p);
   renderVariations();
 
   patchEl.innerHTML = '';
@@ -421,6 +432,24 @@ function applyZoom() {
     const [, , w, h] = v.svg.getAttribute('viewBox')!.split(' ').map(Number);
     v.svg.setAttribute('width', String(w * zoom));
     v.svg.setAttribute('height', String(h * zoom));
+  });
+}
+
+/** Slot-Leiste A–D: aktiver Slot hervorgehoben, Klick wechselt serverseitig. */
+function renderSlots(p: PatchState) {
+  slotsEl.innerHTML = '';
+  const slots = p.slots ?? [{ slot: p.slot, name: p.name }];
+  slots.forEach((s, ix) => {
+    const b = document.createElement('button');
+    b.innerHTML = `${esc(s.slot)}<span class="pname">${esc(s.name || '—')}</span>`;
+    b.title = `Slot ${s.slot}: ${s.name || '—'}`;
+    b.className = s.slot === p.slot ? 'active' : '';
+    b.onclick = () => {
+      if (s.slot === p.slot) return;
+      send({ type: 'selectSlot', slot: ix });
+      // Bestätigung kommt als patchState des neuen Slots
+    };
+    slotsEl.appendChild(b);
   });
 }
 

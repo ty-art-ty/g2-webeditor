@@ -101,6 +101,16 @@ Default-Werten für 10 Variationen). Delete löscht erst alle hängenden Kabel
 (tiefe Kopie!), Farbe, Name und Custom-Labels; neuen Index vergibt der Server,
 Antwort = `moduleAdded`, Kollisionen wie addModule, Undo = Löschen.
 
+**selectSlot** (v1): `{slot: 0–3}` wechselt den aktiven Slot A–D. Wire-Format
+als Perf-Request (CMD_REQ+CMD_SYS = 0x2c, BVerhue `CreateSelectSlotMessage`):
+`[01, 2c, perfVersion, 09, slot]`. Antwort = kompletter `patchState` des neuen
+Slots; der Undo-Verlauf wird verworfen (gehört zum alten Slot). Slot-Wechsel am
+Gerät (Panel) kommen als `I_CHANGE_SLOT` 0x09 herein und broadcasten denselben
+patchState. `patchState` trägt dafür jetzt `slots: [{slot:"A", name}, …]` (alle
+4 Slots mit Patch-Namen) zusätzlich zum aktiven `slot`. paramChanged/
+variationChanged tragen den Slot-Namen — Clients müssen Events fremder Slots
+ignorieren (die Listener hängen auf allen vier).
+
 **moveModules/deleteModules/copySelection** (v1, Multi-Select): wirken auf eine
 Selektion EINER Area und bilden je EINEN Undo-Eintrag.
 `moveModules {area, moves:[{module,col,row}]}` verschiebt die Selektion als

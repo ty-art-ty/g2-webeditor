@@ -134,6 +134,11 @@ public final class MockG2Service implements G2Service {
         emit(Map.of("type", "variationChanged", "variation", v));
     }
 
+    @Override
+    public void selectSlot(int slot) {
+        emit(getPatchState());
+    }
+
     @Override public void undo() { /* Mock: kein Verlauf */ }
 
     @Override public void redo() { /* Mock: kein Verlauf */ }

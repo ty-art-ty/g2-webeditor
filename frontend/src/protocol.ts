@@ -24,6 +24,8 @@ export type ModuleDefs = Record<string, ModuleDef>;
 export interface PatchState {
   type: 'patchState'; connected: boolean;
   perf: string; slot: string; name: string; variation: number;
+  /** Alle 4 Slots (A–D) mit Patch-Namen für die Slot-Leiste. */
+  slots?: { slot: string; name: string }[];
   modules: Module[]; cables: Cable[];
 }
 export interface ParamChanged {
@@ -58,6 +60,8 @@ export interface SetParam {
   type: 'setParam'; area: Area; module: number; param: number; value: number; variation: number;
 }
 export interface SelectVariation { type: 'selectVariation'; variation: number; }
+/** Aktiven Slot wechseln (0–3 = A–D); Antwort = patchState des neuen Slots. */
+export interface SelectSlot { type: 'selectSlot'; slot: number; }
 export interface MoveModule {
   type: 'moveModule'; area: Area; module: number; col: number; row: number;
 }
@@ -89,7 +93,7 @@ export interface SetModuleColor { type: 'setModuleColor'; area: Area; module: nu
 export interface Undo { type: 'undo'; }
 export interface Redo { type: 'redo'; }
 export type ClientMessage =
-  SetParam | SelectVariation | MoveModule | AddCable | DeleteCable |
+  SetParam | SelectVariation | SelectSlot | MoveModule | AddCable | DeleteCable |
   AddModule | CopyModule | DeleteModule | RenameModule | SetModuleColor |
   MoveModules | DeleteModules | CopySelection |
   Undo | Redo;

@@ -1,3 +1,49 @@
+# Phase 4b — Ergebnis Teil 8: Slot-Handling A–D (2026-06-11)
+
+**Status: ✅ Slot-Wechsel A–D (Web → G2), Slot-Leiste im UI, am echten G2 verifiziert.**
+
+## Verifiziert (Skript + Browser gegen echten G2)
+
+- `scripts/ws-slot-test.py`: Slot A→B wechseln (patchState des neuen Slots,
+  Name passt zur slots-Liste), Undo-Verlauf wird beim Wechsel verworfen
+  (undo = no-op), Mutation (addModule) landet im NEUEN Slot, Rundreise zurück
+  nach A — Journal sauber
+- Browser: Slot-Leiste zeigt A–D mit Patch-Namen („Basslines FM4", 3× „s. ciani"),
+  Klick auf B rendert dessen Patch (30 Module statt 36), Auswahl wird beim
+  Wechsel verworfen, zurück zu A stellt die alte Ansicht her
+
+## Umsetzung
+
+- **Wire-Format** (BVerhue `CreateSelectSlotMessage`, g2_mess.pas ~2782):
+  Perf-Request `[01, CMD_REQ+CMD_SYS=2c, perfVersion, S_SEL_SLOT=09, slot]` —
+  in g2lib exakt `usb.sendPerfRequest(version, O_SELECT_SLOT, slot)`;
+  Zugriff über `patch.getSlotSender().getSender()`.
+- **Backend `selectSlot`**: `perfSettings.selectedSlot().set()` ist wieder nur
+  lokal (LibProperty-Falle) → explizit senden. Ein Listener auf `selectedSlot`
+  (attachListeners) macht clearUndo + patchState-Broadcast — derselbe Pfad
+  greift bei Gerät-initiierten Wechseln (g2lib `readSlotChange`, I_CHANGE_SLOT
+  0x09 von der Panel-Taste; implementiert, mangels Hand am Gerät nicht getestet).
+- **Undo-Stacks jetzt synchronisiert** (undoLock): clearUndo kann vom
+  Dispatcher-Thread kommen (Panel-Wechsel), die PerfActions laufen weiterhin
+  nur auf dem Executor.
+- **patchState** trägt `slots: [{slot:"A", name}, …]`; alle 4 Slots sind seit
+  jeher in g2lib geladen (Performance-Init liest alle), Mutationen wirken via
+  getSelectedPatch automatisch auf den aktiven Slot.
+- **Frontend**: Slot-Leiste im Header (aktiver Slot akzentuiert, Patch-Name im
+  Button), Klick sendet `selectSlot {slot:0–3}`; bei Slot-Wechsel im patchState
+  werden Auswahl UND Zwischenablage verworfen (Modul-Indizes könnten im neuen
+  Slot zufällig existieren). paramChanged/variationChanged fremder Slots werden
+  ignoriert (Listener hängen auf allen vier — war schon immer so, fiel ohne
+  Slot-UI nur nie auf).
+
+## Offen (→ Teil 9+)
+
+1. Morph-/Patch-Settings (Glide, Arp, …).
+2. Performance-Mode (Performances laden/verwalten).
+3. Undo-Feedback im UI; Panel-Slot-Wechsel am Gerät gegentesten.
+
+---
+
 # Phase 4b — Ergebnis Teil 7: Multi-Select (2026-06-11)
 
 **Status: ✅ Rechteck-/Shift-Klick-Auswahl, Block-Drag, Selektion kopieren

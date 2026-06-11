@@ -29,6 +29,13 @@ public interface G2Service {
     void selectVariation(int variation);
 
     /**
+     * Aktiven Slot wechseln (0–3 = A–D). Verwirft den Undo-Verlauf und broadcastet
+     * danach den kompletten patchState des neuen Slots. Slot-Wechsel am Gerät
+     * (Panel-Taste) lösen denselben Broadcast aus.
+     */
+    void selectSlot(int slot);
+
+    /**
      * Modul auf neue Grid-Position verschieben (col = Spalte à 255 px, row à 15 px).
      * Implementierung sendet ans Gerät und broadcastet danach "moduleMoved".
      */

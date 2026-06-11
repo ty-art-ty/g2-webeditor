@@ -57,7 +57,10 @@ public final class G2LibService implements G2Service {
     private final Devices devices;
     private final List<Consumer<Map<String, Object>>> listeners = new CopyOnWriteArrayList<>();
 
-    // ---------------- Undo/Redo (nur auf dem g2lib-Executor-Thread anfassen!) ----------------
+    // ---------------- Undo/Redo ----------------
+    // Die PerfAction-Closures laufen IMMER auf dem g2lib-Executor-Thread; die
+    // Stacks selbst sind per undoLock synchronisiert, weil clearUndo auch vom
+    // Slot-Wechsel-Listener kommen kann (Gerät-initiiert -> Dispatcher-Thread).
 
     /** Aktion auf dem Executor-Thread; Closures kapseln Vorher-/Nachher-Zustand. */
     private interface PerfAction { void run(Performance p) throws Exception; }
@@ -65,19 +68,24 @@ public final class G2LibService implements G2Service {
     private record UndoEntry(String label, PerfAction undo, PerfAction redo) {}
 
     private static final int UNDO_LIMIT = 100;
+    private final Object undoLock = new Object();
     private final java.util.ArrayDeque<UndoEntry> undoStack = new java.util.ArrayDeque<>();
     private final java.util.ArrayDeque<UndoEntry> redoStack = new java.util.ArrayDeque<>();
 
     /** Neue Nutzeraktion: Undo-Eintrag stapeln, Redo-Verlauf verwerfen. */
     private void pushUndo(String label, PerfAction undo, PerfAction redo) {
-        undoStack.push(new UndoEntry(label, undo, redo));
-        while (undoStack.size() > UNDO_LIMIT) undoStack.pollLast();
-        redoStack.clear();
+        synchronized (undoLock) {
+            undoStack.push(new UndoEntry(label, undo, redo));
+            while (undoStack.size() > UNDO_LIMIT) undoStack.pollLast();
+            redoStack.clear();
+        }
     }
 
     private void clearUndo() {
-        undoStack.clear();
-        redoStack.clear();
+        synchronized (undoLock) {
+            undoStack.clear();
+            redoStack.clear();
+        }
     }
 
     private volatile boolean connected;
@@ -201,11 +209,12 @@ public final class G2LibService implements G2Service {
     @Override
     public void undo() {
         devices.runWithCurrentPerf(p -> {
-            UndoEntry e = undoStack.poll();
+            UndoEntry e;
+            synchronized (undoLock) { e = undoStack.poll(); }
             if (e == null) return;
             try {
                 e.undo().run(p);
-                redoStack.push(e);
+                synchronized (undoLock) { redoStack.push(e); }
             } catch (Exception ex) {
                 // z.B. Ziel existiert nicht mehr — Eintrag verwerfen statt Stack vergiften
                 log.log(Level.WARNING, "undo fehlgeschlagen: " + e.label(), ex);
@@ -216,14 +225,31 @@ public final class G2LibService implements G2Service {
     @Override
     public void redo() {
         devices.runWithCurrentPerf(p -> {
-            UndoEntry e = redoStack.poll();
+            UndoEntry e;
+            synchronized (undoLock) { e = redoStack.poll(); }
             if (e == null) return;
             try {
                 e.redo().run(p);
-                undoStack.push(e);
+                synchronized (undoLock) { undoStack.push(e); }
             } catch (Exception ex) {
                 log.log(Level.WARNING, "redo fehlgeschlagen: " + e.label(), ex);
             }
+        });
+    }
+
+    @Override
+    public void selectSlot(int slot) {
+        devices.runWithCurrentPerf(p -> {
+            if (slot < 0 || slot > 3) throw new IllegalArgumentException("Slot 0–3: " + slot);
+            if (p.getPerfSettings().selectedSlot().get() == slot) return;
+            // Lokal setzen — LibProperty sendet nicht; der Listener auf selectedSlot
+            // (attachListeners) übernimmt clearUndo + patchState-Broadcast …
+            p.getPerfSettings().selectedSlot().set(slot);
+            // … und explizit ans Gerät als Perf-Request (CMD_REQ+CMD_SYS = 0x2c, wie
+            // BVerhue CreateSelectSlotMessage): [01, 2c, perfVersion, 09, slot]
+            p.getSelectedPatch().getSlotSender().getSender().sendPerfRequest(
+                    p.getVersion(), "select-slot",
+                    org.g2fx.g2lib.protocol.Codes.O_SELECT_SLOT, slot);
         });
     }
 
@@ -994,6 +1020,13 @@ public final class G2LibService implements G2Service {
         out.put("slot", patch.getSlot().name());
         out.put("name", patch.name().get());
         out.put("variation", variation);
+        // Alle 4 Slots (A–D) mit Patch-Namen für die Slot-Leiste im UI
+        List<Map<String, Object>> slots = new ArrayList<>();
+        for (Patch sp : perf.slots()) {
+            String n = sp.name().get();
+            slots.add(Map.of("slot", sp.getSlot().name(), "name", n == null ? "" : n));
+        }
+        out.put("slots", slots);
 
         List<Map<String, Object>> modules = new ArrayList<>();
         List<Map<String, Object>> cables = new ArrayList<>();
@@ -1066,6 +1099,14 @@ public final class G2LibService implements G2Service {
 
     /** Param-/Variation-Listener auf alle Slots einer frisch initialisierten Performance. */
     private void attachListeners(Performance perf) {
+        // Slot-Wechsel (von uns lokal gesetzt ODER vom Gerät via readSlotChange,
+        // z.B. Panel-Taste): Undo-Verlauf gehört zum alten Slot, dann kompletten
+        // patchState des neuen Slots broadcasten. Läuft ggf. auf Dispatcher-/
+        // Executor-Thread: kein invoke, undoLock macht clearUndo threadsicher.
+        perf.getPerfSettings().selectedSlot().addListener((o, n) -> {
+            clearUndo();
+            emit(patchStateOf(perf));
+        });
         for (Patch p : perf.slots()) {
             attachPatchListeners(p);
         }
