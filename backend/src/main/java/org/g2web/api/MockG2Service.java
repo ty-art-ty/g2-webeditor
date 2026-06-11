@@ -88,6 +88,30 @@ public final class MockG2Service implements G2Service {
     }
 
     @Override
+    public void moveModules(String area, List<int[]> moves) {
+        for (int[] mv : moves) moveModule(area, mv[0], mv[1], mv[2]);
+    }
+
+    @Override
+    public void deleteModules(String area, List<Integer> modules) {
+        for (int m : modules) deleteModule(area, m);
+    }
+
+    @Override
+    public void copySelection(String area, List<Integer> modules, int dCol, int dRow) {
+        List<Integer> newIds = new ArrayList<>();
+        int next = 100;
+        for (int m : modules) {
+            int id = next++;
+            newIds.add(id);
+            emit(Map.of("type", "moduleAdded", "module", Map.of(
+                    "id", id, "area", area, "typeName", "OscB", "name", "Kopie" + id,
+                    "row", dRow, "col", dCol, "color", 0, "params", List.of())));
+        }
+        emit(Map.of("type", "selectionCopied", "area", area, "modules", newIds));
+    }
+
+    @Override
     public void renameModule(String area, int module, String name) {
         emit(Map.of("type", "moduleRenamed", "area", area, "module", module, "name", name));
     }

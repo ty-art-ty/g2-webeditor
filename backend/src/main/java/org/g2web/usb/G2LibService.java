@@ -558,27 +558,7 @@ public final class G2LibService implements G2Service {
             PatchModule src = pa.getModule(module); // wirft bei unbekanntem Index
             int index = pa.getModules().stream()
                     .mapToInt(PatchModule::getIndex).max().orElse(0) + 1;
-            // Wie ModuleDelta.UserModuleRecord.duplicate(), aber mit TIEFER Kopie
-            // der Parameterwerte: FieldValues.copy() ist flach, und setParamValues
-            // übernimmt Referenzen — sonst teilte das Duplikat seine Params mit der
-            // Quelle (Ändern am einen änderte beide). mkDefaultParams baut frische
-            // VarParams aus den aktuellen Werten. (Modes/Labels bleiben geteilt —
-            // im Web-UI derzeit nicht editierbar, im Add-Wire nur gelesen.)
-            List<org.g2fx.g2lib.protocol.FieldValues> paramCopies = null;
-            if (src.getValues() != null) {
-                paramCopies = new ArrayList<>();
-                for (int v = 0; v < PatchModule.MAX_VARIATIONS; v++) {
-                    paramCopies.add(org.g2fx.g2lib.state.ParamValues.mkDefaultParams(
-                            src.getVarValues(v), v));
-                }
-            }
-            var rec = new org.g2fx.g2gui.module.ModuleDelta.UserModuleRecord(
-                    src.name().get(),
-                    src.getUserModuleData().getValues().copy()
-                            .update(org.g2fx.g2lib.protocol.Protocol.UserModule.Index.value(index))
-                            .update(org.g2fx.g2lib.protocol.Protocol.UserModule.Column.value(col))
-                            .update(org.g2fx.g2lib.protocol.Protocol.UserModule.Row.value(row)),
-                    areaId, paramCopies, src.getModuleLabelsValues());
+            var rec = deepCopyRecord(src, areaId, index, col, row);
             List<PatchModule> created = pa.createModules(
                     new org.g2fx.g2gui.module.ModuleDelta(List.of(rec), List.of(), true));
             PatchModule m = created.get(0);
@@ -611,6 +591,220 @@ public final class G2LibService implements G2Service {
                         applyMoves(p2, area, newMoves);
                     });
         });
+    }
+
+    /**
+     * UserModuleRecord als TIEFE Kopie eines Moduls an neuer Position mit neuem
+     * Index — wie ModuleDelta.UserModuleRecord.duplicate(), aber mit frischen
+     * Parameterwerten: FieldValues.copy() ist flach, und setParamValues übernimmt
+     * Referenzen — sonst teilte das Duplikat seine VarParams mit der Quelle
+     * (Ändern am einen änderte beide). mkDefaultParams baut frische FieldValues
+     * je Variation. (Modes/Labels bleiben geteilt — im Web-UI nicht editierbar,
+     * im Add-Wire nur gelesen.)
+     */
+    private static org.g2fx.g2gui.module.ModuleDelta.UserModuleRecord deepCopyRecord(
+            PatchModule src, AreaId areaId, int index, int col, int row) {
+        List<org.g2fx.g2lib.protocol.FieldValues> paramCopies = null;
+        if (src.getValues() != null) {
+            paramCopies = new ArrayList<>();
+            for (int v = 0; v < PatchModule.MAX_VARIATIONS; v++) {
+                paramCopies.add(org.g2fx.g2lib.state.ParamValues.mkDefaultParams(
+                        src.getVarValues(v), v));
+            }
+        }
+        return new org.g2fx.g2gui.module.ModuleDelta.UserModuleRecord(
+                src.name().get(),
+                src.getUserModuleData().getValues().copy()
+                        .update(org.g2fx.g2lib.protocol.Protocol.UserModule.Index.value(index))
+                        .update(org.g2fx.g2lib.protocol.Protocol.UserModule.Column.value(col))
+                        .update(org.g2fx.g2lib.protocol.Protocol.UserModule.Row.value(row)),
+                areaId, paramCopies, src.getModuleLabelsValues());
+    }
+
+    @Override
+    public void copySelection(String area, List<Integer> moduleIds, int dCol, int dRow) {
+        devices.runWithCurrentPerf(p -> {
+            AreaId areaId = "fx".equals(area) ? AreaId.Fx : AreaId.Voice;
+            Patch patch = p.getSelectedPatch();
+            PatchArea pa = patch.getArea(areaId);
+            // Quellen in stabiler Index-Reihenfolge; getModule wirft bei unbekanntem Index
+            List<PatchModule> srcs = new ArrayList<>();
+            for (int id : new java.util.TreeSet<>(moduleIds)) srcs.add(pa.getModule(id));
+            // Interne Kabel (BEIDE Enden in der Selektion) vor dem Anlegen sichern
+            java.util.Set<Integer> sel = new java.util.HashSet<>(moduleIds);
+            List<CableSnap> internal = pa.getCables().stream()
+                    .filter(c -> sel.contains(c.getSrcModule()) && sel.contains(c.getDestModule()))
+                    .map(c -> new CableSnap(c.getSrcModule(), c.getSrcConn(), c.getDirection(),
+                            c.getDestModule(), c.getDestConn(), c.getColor()))
+                    .toList();
+            Map<Integer, int[]> before = snapshotCoords(pa); // ohne die Kopien
+            // Kopien als starrer Block am Offset anlegen; Index-Mapping alt -> neu
+            Map<Integer, Integer> newIx = new LinkedHashMap<>();
+            int next = pa.getModules().stream()
+                    .mapToInt(PatchModule::getIndex).max().orElse(0) + 1;
+            List<PatchModule> copies = new ArrayList<>();
+            for (PatchModule src : srcs) {
+                int index = next++;
+                newIx.put(src.getIndex(), index);
+                var rec = deepCopyRecord(src, areaId, index,
+                        src.getUserModuleData().column().get() + dCol,
+                        src.getUserModuleData().row().get() + dRow);
+                PatchModule m = pa.createModules(new org.g2fx.g2gui.module.ModuleDelta(
+                        List.of(rec), List.of(), true)).get(0);
+                attachModuleParamListeners(patch.getSlot().name(), area, m);
+                copies.add(m);
+            }
+            // Kollisionen: Anders als beim Einzel-Move weicht hier NICHT die Selektion
+            // aus (der Block bliebe sonst nicht starr) — überlappende Bestands-Module
+            // rutschen unter den Block und kaskadieren.
+            for (PatchModule c : resolveCollisionsMulti(pa, new java.util.HashSet<>(newIx.values()))) {
+                sendMoveAndEmit(patch, areaId, area, c);
+            }
+            for (PatchModule m : copies) {
+                emit(Map.of("type", "moduleAdded", "module", moduleOf(m, area)));
+            }
+            // Interne Kabel auf die neuen Indizes umgeschrieben nachziehen (Farbe erhalten)
+            List<CableSnap> newCables = new ArrayList<>();
+            for (CableSnap c : internal) {
+                newCables.add(new CableSnap(newIx.get(c.fromModule()), c.fromConn(),
+                        c.fromOutput(), newIx.get(c.toModule()), c.toConn(), c.color()));
+            }
+            for (CableSnap c : newCables) {
+                addCableInternal(p, area, c.fromModule(), c.fromConn(), c.fromOutput(),
+                        c.toModule(), c.toConn(), c.color());
+            }
+            List<Integer> newIds = List.copyOf(newIx.values());
+            // Kommt zuletzt: Client kann damit die frischen Kopien selektieren
+            emit(Map.of("type", "selectionCopied", "area", area, "modules", newIds));
+            // Undo: Kopien löschen (Kabel kaskadieren) + Verdrängte zurück;
+            // Redo: aus finalen Records restaurieren + Kabel + Verdrängungen.
+            List<org.g2fx.g2gui.module.ModuleDelta.UserModuleRecord> recs = copies.stream()
+                    .map(org.g2fx.g2gui.module.ModuleDelta.UserModuleRecord::new).toList();
+            List<int[]> oldMoves = new ArrayList<>(), newMoves = new ArrayList<>();
+            coordDiff(pa, before, oldMoves, newMoves); // Kopien fehlen in before -> ignoriert
+            pushUndo("copySelection",
+                    p2 -> {
+                        for (int id : newIds) deleteModuleInternal(p2, area, id);
+                        applyMoves(p2, area, oldMoves);
+                    },
+                    p2 -> {
+                        for (var rec : recs) restoreModule(p2, area, rec, List.of());
+                        for (CableSnap c : newCables) {
+                            addCableInternal(p2, area, c.fromModule(), c.fromConn(),
+                                    c.fromOutput(), c.toModule(), c.toConn(), c.color());
+                        }
+                        applyMoves(p2, area, newMoves);
+                        emit(Map.of("type", "selectionCopied", "area", area, "modules", newIds));
+                    });
+        });
+    }
+
+    @Override
+    public void moveModules(String area, List<int[]> moves) {
+        devices.runWithCurrentPerf(p -> {
+            AreaId areaId = "fx".equals(area) ? AreaId.Fx : AreaId.Voice;
+            Patch patch = p.getSelectedPatch();
+            PatchArea pa = patch.getArea(areaId);
+            Map<Integer, int[]> before = snapshotCoords(pa);
+            // Selektion starr auf die Zielpositionen setzen (nur lokal) …
+            java.util.Set<Integer> sel = new java.util.HashSet<>();
+            java.util.Set<PatchModule> changed = new java.util.LinkedHashSet<>();
+            for (int[] mv : moves) {
+                PatchModule m = pa.getModule(mv[0]); // wirft bei unbekanntem Index
+                m.getUserModuleData().column().set(mv[1]);
+                m.getUserModuleData().row().set(mv[2]);
+                sel.add(mv[0]);
+                changed.add(m);
+            }
+            // … Kollisionen wie bei copySelection (Block gewinnt), dann senden/emitten
+            changed.addAll(resolveCollisionsMulti(pa, sel));
+            for (PatchModule m : changed) sendMoveAndEmit(patch, areaId, area, m);
+            List<int[]> oldMoves = new ArrayList<>(), newMoves = new ArrayList<>();
+            coordDiff(pa, before, oldMoves, newMoves);
+            if (!newMoves.isEmpty()) {
+                pushUndo("moveModules",
+                        p2 -> applyMoves(p2, area, oldMoves),
+                        p2 -> applyMoves(p2, area, newMoves));
+            }
+        });
+    }
+
+    @Override
+    public void deleteModules(String area, List<Integer> moduleIds) {
+        devices.runWithCurrentPerf(p -> {
+            AreaId areaId = "fx".equals(area) ? AreaId.Fx : AreaId.Voice;
+            PatchArea pa = p.getSelectedPatch().getArea(areaId);
+            java.util.Set<Integer> sel = new java.util.HashSet<>(moduleIds);
+            List<Integer> ids = new ArrayList<>(new java.util.TreeSet<>(moduleIds));
+            List<org.g2fx.g2gui.module.ModuleDelta.UserModuleRecord> recs = new ArrayList<>();
+            for (int id : ids) {
+                recs.add(new org.g2fx.g2gui.module.ModuleDelta.UserModuleRecord(pa.getModule(id)));
+            }
+            // ALLE betroffenen Kabel EINMAL sichern — über Einzel-Snapshots je Modul
+            // gäbe es Duplikate für Kabel zwischen zwei selektierten Modulen
+            List<CableSnap> cables = pa.getCables().stream()
+                    .filter(c -> sel.contains(c.getSrcModule()) || sel.contains(c.getDestModule()))
+                    .map(c -> new CableSnap(c.getSrcModule(), c.getSrcConn(), c.getDirection(),
+                            c.getDestModule(), c.getDestConn(), c.getColor()))
+                    .toList();
+            for (int id : ids) deleteModuleInternal(p, area, id);
+            pushUndo("deleteModules",
+                    p2 -> {
+                        // erst ALLE Module restaurieren, dann die Kabel (interne brauchen beide Enden)
+                        for (var rec : recs) restoreModule(p2, area, rec, List.of());
+                        for (CableSnap c : cables) {
+                            addCableInternal(p2, area, c.fromModule(), c.fromConn(),
+                                    c.fromOutput(), c.toModule(), c.toConn(), c.color());
+                        }
+                    },
+                    p2 -> {
+                        for (int id : ids) deleteModuleInternal(p2, area, id);
+                    });
+        });
+    }
+
+    /**
+     * Kollisionsauflösung für eine SELEKTION: anders als {@link #resolveCollisions}
+     * (Einzelmodul weicht nach unten aus) behalten die selektierten Module ihre
+     * Positionen — der Block bleibt starr. Nicht-selektierte Module, die in einer
+     * Spalte mit Selektion überlappen, rutschen unter das unterste überlappende
+     * Modul und kaskadieren. Nur lokal; Senden/Emitten macht der Aufrufer.
+     */
+    private static List<PatchModule> resolveCollisionsMulti(PatchArea pa, java.util.Set<Integer> selected) {
+        List<PatchModule> changed = new ArrayList<>();
+        Map<Integer, List<PatchModule>> byCol = new java.util.TreeMap<>();
+        for (PatchModule m : pa.getModules()) {
+            byCol.computeIfAbsent(m.getUserModuleData().column().get(),
+                    k -> new ArrayList<>()).add(m);
+        }
+        for (List<PatchModule> colMods : byCol.values()) {
+            if (colMods.stream().noneMatch(m -> selected.contains(m.getIndex()))) continue;
+            colMods.sort(java.util.Comparator.comparingInt(G2LibService::rowOf));
+            List<PatchModule> placed = new ArrayList<>(); // Selektion = fix
+            for (PatchModule m : colMods) {
+                if (selected.contains(m.getIndex())) placed.add(m);
+            }
+            for (PatchModule m : colMods) {
+                if (selected.contains(m.getIndex())) continue;
+                int row = rowOf(m);
+                boolean moved = true;
+                while (moved) { // unter alle Überlapper rutschen (Kaskade über placed)
+                    moved = false;
+                    for (PatchModule f : placed) {
+                        if (rowOf(f) < row + heightOf(m) && rowOf(f) + heightOf(f) > row) {
+                            row = rowOf(f) + heightOf(f);
+                            moved = true;
+                        }
+                    }
+                }
+                if (row != rowOf(m)) {
+                    m.getUserModuleData().row().set(row);
+                    changed.add(m);
+                }
+                placed.add(m);
+            }
+        }
+        return changed;
     }
 
     /** Schnappschuss eines Kabels fürs Wiederherstellen. */

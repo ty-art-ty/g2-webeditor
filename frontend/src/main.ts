@@ -16,7 +16,9 @@ const VARIATION_COUNT = 8;
 let currentVariation = 0;
 let currentPatch: PatchState | null = null;
 let moduleDefs: ModuleDefs = {};
-let selected: { area: Area; id: number } | null = null;
+// Mehrfach-Auswahl: Modul-Ids EINER Area (Rechteck/Shift-Klick); das Param-Panel
+// zeigt nur bei genau einem Modul Details.
+let selected: { area: Area; ids: number[] } | null = null;
 let selectedCable: Cable | null = null;
 let zoom = 1;
 const areaViews = new Map<Area, AreaView>();
@@ -117,11 +119,18 @@ function handle(msg: ServerMessage) {
         // Sicherheit lokal ebenfalls aufräumen (Events können vorausgehen).
         currentPatch.cables = currentPatch.cables.filter((c) => !(c.area === msg.area
           && (c.from.module === msg.module || c.to.module === msg.module)));
-        if (selected && selected.area === msg.area && selected.id === msg.module) {
-          selected = null;
+        if (selected && selected.area === msg.area) {
+          selected.ids = selected.ids.filter((id) => id !== msg.module);
+          if (!selected.ids.length) selected = null;
         }
         renderPatch(currentPatch);
       }
+      break;
+    case 'selectionCopied':
+      // Kommt nach den moduleAdded/cableAdded der Kopie: frische Kopien auswählen,
+      // damit man sie direkt verschieben/erneut kopieren kann.
+      selected = { area: msg.area, ids: [...msg.modules] };
+      applySelection();
       break;
     case 'variationChanged':
       currentVariation = msg.variation;
@@ -144,11 +153,11 @@ const findCable = (
     && c.from.module === from.module && c.from.conn === from.conn
     && c.to.module === to.module && c.to.conn === to.conn);
 
-// Modul-Zwischenablage für Cmd+C/Cmd+V (nur Referenz; Quelle kann weg sein)
-let clipboard: { area: Area; id: number } | null = null;
+// Modul-Zwischenablage für Cmd+C/Cmd+V (nur Referenzen; Quellen können weg sein)
+let clipboard: { area: Area; ids: number[] } | null = null;
 
-// Entf/Backspace löscht das ausgewählte Kabel, sonst das ausgewählte Modul;
-// Cmd/Ctrl+Z = Undo, +Shift = Redo; Cmd/Ctrl+C/V = Modul kopieren/einfügen
+// Entf/Backspace löscht das ausgewählte Kabel, sonst die ausgewählten Module;
+// Cmd/Ctrl+Z = Undo, +Shift = Redo; Cmd/Ctrl+C/V = Selektion kopieren/einfügen
 // (nicht aus Eingabefeldern heraus)
 document.addEventListener('keydown', (ev) => {
   if (document.activeElement instanceof HTMLInputElement) return;
@@ -159,20 +168,32 @@ document.addEventListener('keydown', (ev) => {
   }
   if ((ev.metaKey || ev.ctrlKey) && ev.key.toLowerCase() === 'c') {
     if (selected) {
-      clipboard = { ...selected };
+      clipboard = { area: selected.area, ids: [...selected.ids] };
       ev.preventDefault();
     }
     return;
   }
   if ((ev.metaKey || ev.ctrlKey) && ev.key.toLowerCase() === 'v') {
-    const src = clipboard && findModule(clipboard.area, clipboard.id);
-    if (src) {
-      ev.preventDefault();
-      // Direkt unter die Quelle; wiederholtes Einfügen stapelt sich dank
-      // serverseitiger Kollisionslogik von selbst nach unten.
-      const h = moduleDefs[src.typeName]?.height ?? 2;
+    const srcs = clipboard
+      ? clipboard.ids.map((id) => findModule(clipboard!.area, id))
+          .filter((m): m is Module => !!m)
+      : [];
+    if (!srcs.length) return;
+    ev.preventDefault();
+    const bottom = (m: Module) => m.row + (moduleDefs[m.typeName]?.height ?? 2);
+    if (srcs.length === 1) {
+      // Einzelmodul wie bisher: direkt unter die Quelle; wiederholtes Einfügen
+      // stapelt sich dank serverseitiger Kollisionslogik von selbst nach unten.
+      const src = srcs[0];
       send({ type: 'copyModule', area: src.area, module: src.id,
-             col: src.col, row: src.row + h });
+             col: src.col, row: bottom(src) });
+    } else {
+      // Selektion als Block direkt unter ihre Bounding-Box (inkl. interner Kabel);
+      // die neuen Kopien kommen als moduleAdded* + cableAdded* + selectionCopied.
+      const minRow = Math.min(...srcs.map((m) => m.row));
+      const dRow = Math.max(...srcs.map(bottom)) - minRow;
+      send({ type: 'copySelection', area: clipboard!.area,
+             modules: srcs.map((m) => m.id), dCol: 0, dRow });
     }
     return;
   }
@@ -183,8 +204,13 @@ document.addEventListener('keydown', (ev) => {
       fromOutput: selectedCable.fromOutput ?? true });
     selectedCable = null; // Bestätigung kommt als cableDeleted + Re-Render
   } else if (selected) {
-    send({ type: 'deleteModule', area: selected.area, module: selected.id });
-    // Bestätigung kommt als cableDeleted* + moduleDeleted + Re-Render
+    if (selected.ids.length === 1) {
+      send({ type: 'deleteModule', area: selected.area, module: selected.ids[0] });
+    } else {
+      // Ein Undo-Eintrag für die ganze Selektion (Undo restauriert auch alle Kabel)
+      send({ type: 'deleteModules', area: selected.area, modules: [...selected.ids] });
+    }
+    // Bestätigung kommt als cableDeleted* + moduleDeleted* + Re-Render
   }
 });
 
@@ -214,10 +240,15 @@ function renderPatch(p: PatchState) {
     if (!mods.length) continue;
 
     const view = renderArea(area, mods, p.cables ?? [], moduleDefs,
-      (m) => selectModule(m),
-      (m, col, row) => send({ type: 'moveModule', area: m.area, module: m.id, col, row }),
+      (m, additive) => selectModule(m, additive),
+      (moves) => moves.length === 1
+        ? send({ type: 'moveModule', area, module: moves[0].module,
+                 col: moves[0].col, row: moves[0].row })
+        : send({ type: 'moveModules', area, moves }),
       (from, fromOutput, to) => send({ type: 'addCable', area, from, to, fromOutput }),
-      (c) => { selectedCable = c; });
+      (c) => { selectedCable = c; },
+      (ids, additive) => rectSelect(area, ids, additive),
+      () => new Set(selected?.area === area ? selected.ids : []));
     areaViews.set(area, view);
     patchEl.appendChild(view.svg);
   }
@@ -225,25 +256,56 @@ function renderPatch(p: PatchState) {
 
   // Auswahl wiederherstellen (z.B. nach Variationswechsel-Refresh) bzw. Panel
   // leeren — sonst zeigt es nach Patch-Wechsel noch ein Modul des alten Patches.
-  const m = selected && findModule(selected.area, selected.id);
-  if (m) selectModule(m); else clearSelection();
+  if (selected) {
+    selected.ids = selected.ids.filter((id) => findModule(selected!.area, id));
+    if (!selected.ids.length) selected = null;
+  }
+  applySelection();
 }
 
-function selectModule(m: Module) {
-  selected = { area: m.area, id: m.id };
-  selectedCable = null;
+/** Auswahl-Hervorhebung + Param-Panel an den selected-State angleichen. */
+function applySelection() {
   areaViews.forEach((v, area) => {
-    v.select(area === m.area ? m.id : null);
-    v.clearCableSelection();
+    v.select(new Set(selected?.area === area ? selected.ids : []));
   });
-  renderParamPanel(m);
+  if (!selected) {
+    paramsBodyEl.className = 'hint';
+    paramsBodyEl.textContent = 'Modul anklicken';
+  } else if (selected.ids.length === 1) {
+    const m = findModule(selected.area, selected.ids[0]);
+    if (m) renderParamPanel(m);
+  } else {
+    paramsBodyEl.className = 'hint';
+    paramsBodyEl.textContent = `${selected.ids.length} Module ausgewählt — `
+      + 'Drag verschiebt, ⌘C/⌘V kopiert (inkl. interner Kabel), Entf löscht';
+  }
 }
 
-function clearSelection() {
-  selected = null;
-  areaViews.forEach((v) => v.select(null));
-  paramsBodyEl.className = 'hint';
-  paramsBodyEl.textContent = 'Modul anklicken';
+function selectModule(m: Module, additive = false) {
+  if (additive && selected && selected.area === m.area) {
+    const ix = selected.ids.indexOf(m.id);
+    if (ix >= 0) selected.ids.splice(ix, 1); else selected.ids.push(m.id);
+    if (!selected.ids.length) selected = null;
+  } else {
+    selected = { area: m.area, ids: [m.id] };
+  }
+  selectedCable = null;
+  areaViews.forEach((v) => v.clearCableSelection());
+  applySelection();
+}
+
+/** Gummiband-Ergebnis übernehmen (additive = Shift gedrückt). */
+function rectSelect(area: Area, ids: number[], additive: boolean) {
+  if (additive && selected && selected.area === area) {
+    for (const id of ids) {
+      if (!selected.ids.includes(id)) selected.ids.push(id);
+    }
+  } else {
+    selected = ids.length ? { area, ids } : null;
+  }
+  selectedCable = null;
+  areaViews.forEach((v) => v.clearCableSelection());
+  applySelection();
 }
 
 function renderParamPanel(m: Module) {

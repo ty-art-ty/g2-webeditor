@@ -65,6 +65,27 @@ public interface G2Service {
      */
     void copyModule(String area, int module, int col, int row);
 
+    /**
+     * Mehrere Module einer Area als starrer Block verschieben (ein Undo-Eintrag).
+     * {@code moves} = Tripel {module, col, row}. Die Selektion behält ihre Positionen,
+     * überlappende Bestands-Module rutschen darunter. Je Modul ein "moduleMoved".
+     */
+    void moveModules(String area, List<int[]> moves);
+
+    /**
+     * Mehrere Module löschen (ein Undo-Eintrag, Undo restauriert auch alle Kabel —
+     * inkl. der internen zwischen selektierten Modulen). Broadcasts wie deleteModule.
+     */
+    void deleteModules(String area, List<Integer> modules);
+
+    /**
+     * Selektion duplizieren: Module (tiefe Param-Kopie wie copyModule) als starrer
+     * Block um (dCol,dRow) versetzt, interne Kabel (beide Enden in der Selektion)
+     * mit kopiert. Broadcastet je Kopie "moduleAdded", je Kabel "cableAdded" und
+     * zum Schluss "selectionCopied" mit den neuen Indizes (ein Undo-Eintrag).
+     */
+    void copySelection(String area, List<Integer> modules, int dCol, int dRow);
+
     /** Modul umbenennen (max 16 ASCII-Zeichen). Broadcastet "moduleRenamed". */
     void renameModule(String area, int module, String name);
 

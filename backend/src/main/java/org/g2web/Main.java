@@ -94,6 +94,22 @@ public final class Main {
                             msg.get("module").asInt(),
                             msg.get("col").asInt(),
                             msg.get("row").asInt());
+                    case "moveModules" -> {
+                        var moves = new java.util.ArrayList<int[]>();
+                        for (JsonNode mv : msg.get("moves")) {
+                            moves.add(new int[]{mv.get("module").asInt(),
+                                    mv.get("col").asInt(), mv.get("row").asInt()});
+                        }
+                        g2.moveModules(msg.has("area") ? msg.get("area").asText() : "va", moves);
+                    }
+                    case "deleteModules" -> g2.deleteModules(
+                            msg.has("area") ? msg.get("area").asText() : "va",
+                            intList(msg.get("modules")));
+                    case "copySelection" -> g2.copySelection(
+                            msg.has("area") ? msg.get("area").asText() : "va",
+                            intList(msg.get("modules")),
+                            msg.get("dCol").asInt(),
+                            msg.get("dRow").asInt());
                     case "renameModule" -> g2.renameModule(
                             msg.has("area") ? msg.get("area").asText() : "va",
                             msg.get("module").asInt(),
@@ -110,6 +126,12 @@ public final class Main {
         });
 
         app.start(Integer.getInteger("g2web.port", 8080));
+    }
+
+    private static java.util.List<Integer> intList(JsonNode arr) {
+        var out = new java.util.ArrayList<Integer>();
+        for (JsonNode n : arr) out.add(n.asInt());
+        return out;
     }
 
     private static G2Service createService() {

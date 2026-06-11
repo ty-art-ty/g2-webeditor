@@ -47,10 +47,12 @@ export interface ModuleAdded { type: 'moduleAdded'; module: Module; }
 export interface ModuleDeleted { type: 'moduleDeleted'; area: Area; module: number; }
 export interface ModuleRenamed { type: 'moduleRenamed'; area: Area; module: number; name: string; }
 export interface ModuleColorChanged { type: 'moduleColorChanged'; area: Area; module: number; color: number; }
+/** Abschluss von copySelection: die Indizes der frischen Kopien (für die Auswahl). */
+export interface SelectionCopied { type: 'selectionCopied'; area: Area; modules: number[]; }
 export type ServerMessage =
   PatchState | ParamChanged | VariationChanged | Connection | ModuleMoved |
   CableAdded | CableDeleted | ModuleAdded | ModuleDeleted |
-  ModuleRenamed | ModuleColorChanged;
+  ModuleRenamed | ModuleColorChanged | SelectionCopied;
 
 export interface SetParam {
   type: 'setParam'; area: Area; module: number; param: number; value: number; variation: number;
@@ -69,6 +71,18 @@ export interface AddModule { type: 'addModule'; area: Area; typeName: string; co
 /** Dupliziert ein Modul (Params/Farbe/Name); Antwort kommt als moduleAdded. */
 export interface CopyModule { type: 'copyModule'; area: Area; module: number; col: number; row: number; }
 export interface DeleteModule { type: 'deleteModule'; area: Area; module: number; }
+export interface ModuleMove { module: number; col: number; row: number; }
+/** Selektion als starrer Block verschieben (ein Undo-Eintrag). */
+export interface MoveModules { type: 'moveModules'; area: Area; moves: ModuleMove[]; }
+/** Selektion löschen (ein Undo-Eintrag, Undo restauriert auch alle Kabel). */
+export interface DeleteModules { type: 'deleteModules'; area: Area; modules: number[]; }
+/**
+ * Selektion duplizieren, um (dCol,dRow) versetzt, interne Kabel inklusive.
+ * Antwort: moduleAdded*, cableAdded*, selectionCopied (ein Undo-Eintrag).
+ */
+export interface CopySelection {
+  type: 'copySelection'; area: Area; modules: number[]; dCol: number; dRow: number;
+}
 export interface RenameModule { type: 'renameModule'; area: Area; module: number; name: string; }
 export interface SetModuleColor { type: 'setModuleColor'; area: Area; module: number; color: number; }
 /** Wirkung kommt als normale Broadcasts zurück; leerer Verlauf = no-op. */
@@ -77,6 +91,7 @@ export interface Redo { type: 'redo'; }
 export type ClientMessage =
   SetParam | SelectVariation | MoveModule | AddCable | DeleteCable |
   AddModule | CopyModule | DeleteModule | RenameModule | SetModuleColor |
+  MoveModules | DeleteModules | CopySelection |
   Undo | Redo;
 
 // REST: /api/banks

@@ -137,63 +137,22 @@ function attachCableDrag(
   });
 }
 
-/**
- * Drag&Drop mit Grid-Snap; ein Klick ohne Bewegung (<0.5 Zelle) ist Auswahl.
- * Während des Drags wird nur die Modul-Gruppe verschoben (Kabel folgen erst
- * mit dem moduleMoved-Re-Render — Server ist Single Source of Truth).
- */
-function attachDrag(
-  g: SVGGElement, svg: SVGSVGElement, m: Module,
-  onSelect: (m: Module) => void,
-  onMove: (m: Module, col: number, row: number) => void,
-) {
-  g.addEventListener('pointerdown', (down) => {
-    if (down.button !== 0) return;
-    down.preventDefault();
-    g.setPointerCapture(down.pointerId);
-    // Client-px -> Area-Koordinaten (berücksichtigt Zoom über width/viewBox)
-    const scale = svg.viewBox.baseVal.width / svg.getBoundingClientRect().width;
-    let dCol = 0, dRow = 0, moved = false;
-
-    const onPointerMove = (ev: PointerEvent) => {
-      dCol = Math.round((ev.clientX - down.clientX) * scale / GRID_X);
-      dRow = Math.round((ev.clientY - down.clientY) * scale / GRID_Y);
-      const col = Math.max(0, m.col + dCol), row = Math.max(0, m.row + dRow);
-      if (col !== m.col || row !== m.row) moved = true;
-      g.setAttribute('transform', `translate(${col * GRID_X},${row * GRID_Y})`);
-      g.setAttribute('opacity', moved ? '0.7' : '1');
-    };
-    const onPointerUp = () => {
-      g.removeEventListener('pointermove', onPointerMove);
-      g.removeEventListener('pointerup', onPointerUp);
-      g.setAttribute('opacity', '1');
-      const col = Math.max(0, m.col + dCol), row = Math.max(0, m.row + dRow);
-      if (moved && (col !== m.col || row !== m.row)) {
-        onMove(m, col, row); // Bestätigung kommt als moduleMoved + Re-Render
-      } else {
-        g.setAttribute('transform', `translate(${m.col * GRID_X},${m.row * GRID_Y})`);
-        onSelect(m);
-      }
-    };
-    g.addEventListener('pointermove', onPointerMove);
-    g.addEventListener('pointerup', onPointerUp);
-  });
-}
-
 export interface AreaView {
   svg: SVGSVGElement;
-  /** Auswahl-Hervorhebung setzen (moduleId oder null). */
-  select(moduleId: number | null): void;
+  /** Auswahl-Hervorhebung setzen (Menge der moduleIds). */
+  select(moduleIds: Set<number>): void;
   /** Kabel-Auswahl-Hervorhebung aufheben. */
   clearCableSelection(): void;
 }
 
 export function renderArea(
   area: Area, modules: Module[], cables: Cable[], defs: ModuleDefs,
-  onSelect: (m: Module) => void,
-  onMove: (m: Module, col: number, row: number) => void,
+  onSelect: (m: Module, additive: boolean) => void,
+  onMove: (moves: { module: number; col: number; row: number }[]) => void,
   onAddCable: (from: CableEnd, fromOutput: boolean, to: CableEnd) => void,
   onSelectCable: (c: Cable | null) => void,
+  onRectSelect: (ids: number[], additive: boolean) => void,
+  selectedIds: () => Set<number>,
 ): AreaView {
   const byId = new Map(modules.map((m) => [m.id, m]));
   const cols = Math.max(...modules.map((m) => m.col), 0) + 1;
@@ -216,6 +175,107 @@ export function renderArea(
   });
 
   const groups = new Map<number, SVGGElement>();
+
+  /**
+   * Drag&Drop mit Grid-Snap; ein Klick ohne Bewegung ist Auswahl (Shift = Toggle).
+   * Ist das Modul Teil einer Mehrfach-Auswahl, zieht der Drag die GANZE Selektion
+   * als starren Block mit (Kabel folgen erst mit dem Re-Render — Server ist
+   * Single Source of Truth).
+   */
+  const attachModuleDrag = (g: SVGGElement, m: Module) => {
+    g.addEventListener('pointerdown', (down) => {
+      if (down.button !== 0) return;
+      down.preventDefault();
+      g.setPointerCapture(down.pointerId);
+      // Client-px -> Area-Koordinaten (berücksichtigt Zoom über width/viewBox)
+      const scale = svg.viewBox.baseVal.width / svg.getBoundingClientRect().width;
+      const sel = selectedIds();
+      const dragMods = sel.has(m.id) && sel.size > 1
+        ? [...sel].map((id) => byId.get(id)!).filter(Boolean)
+        : [m];
+      // Kein Modul der Selektion darf links/oben aus dem Grid rutschen
+      const minCol = Math.min(...dragMods.map((d) => d.col));
+      const minRow = Math.min(...dragMods.map((d) => d.row));
+      let dCol = 0, dRow = 0, moved = false;
+
+      const place = (opacity: string) => {
+        for (const d of dragMods) {
+          const gg = groups.get(d.id)!;
+          gg.setAttribute('transform',
+            `translate(${(d.col + dCol) * GRID_X},${(d.row + dRow) * GRID_Y})`);
+          gg.setAttribute('opacity', opacity);
+        }
+      };
+      const onPointerMove = (ev: PointerEvent) => {
+        dCol = Math.max(Math.round((ev.clientX - down.clientX) * scale / GRID_X), -minCol);
+        dRow = Math.max(Math.round((ev.clientY - down.clientY) * scale / GRID_Y), -minRow);
+        if (dCol || dRow) moved = true;
+        place(moved ? '0.7' : '1');
+      };
+      const onPointerUp = () => {
+        g.removeEventListener('pointermove', onPointerMove);
+        g.removeEventListener('pointerup', onPointerUp);
+        if (moved && (dCol || dRow)) {
+          place('1');
+          // Bestätigung kommt als moduleMoved + Re-Render
+          onMove(dragMods.map((d) => ({ module: d.id, col: d.col + dCol, row: d.row + dRow })));
+        } else {
+          dCol = 0; dRow = 0;
+          place('1');
+          onSelect(m, down.shiftKey);
+        }
+      };
+      g.addEventListener('pointermove', onPointerMove);
+      g.addEventListener('pointerup', onPointerUp);
+    });
+  };
+
+  // Gummiband-Selektion: Drag auf leerer Fläche wählt alle berührten Module
+  // (Shift = zur Auswahl hinzufügen); Klick ohne Bewegung hebt die Auswahl auf.
+  svg.addEventListener('pointerdown', (down) => {
+    if (down.target !== svg || down.button !== 0) return;
+    down.preventDefault();
+    svg.setPointerCapture(down.pointerId);
+    const start = clientToArea(svg, down.clientX, down.clientY);
+    let band: SVGRectElement | null = null;
+
+    const onPointerMove = (ev: PointerEvent) => {
+      if (!band) {
+        band = el('rect', {
+          fill: 'rgba(120,160,255,.12)', stroke: '#7aa0ff',
+          'stroke-dasharray': '4 3', 'pointer-events': 'none',
+        });
+        overlay.appendChild(band);
+      }
+      const cur = clientToArea(svg, ev.clientX, ev.clientY);
+      band.setAttribute('x', String(Math.min(start.x, cur.x)));
+      band.setAttribute('y', String(Math.min(start.y, cur.y)));
+      band.setAttribute('width', String(Math.abs(cur.x - start.x)));
+      band.setAttribute('height', String(Math.abs(cur.y - start.y)));
+    };
+    const onPointerUp = (ev: PointerEvent) => {
+      svg.removeEventListener('pointermove', onPointerMove);
+      svg.removeEventListener('pointerup', onPointerUp);
+      const dragged = band !== null;
+      band?.remove();
+      if (!dragged) {
+        onRectSelect([], false); // Klick auf leere Fläche: Auswahl aufheben
+        return;
+      }
+      const cur = clientToArea(svg, ev.clientX, ev.clientY);
+      const x0 = Math.min(start.x, cur.x), x1 = Math.max(start.x, cur.x);
+      const y0 = Math.min(start.y, cur.y), y1 = Math.max(start.y, cur.y);
+      const ids = modules.filter((mm) => {
+        const mx = mm.col * GRID_X, my = mm.row * GRID_Y;
+        const mh = (defs[mm.typeName]?.height ?? 2) * GRID_Y;
+        return mx < x1 && mx + GRID_X > x0 && my < y1 && my + mh > y0;
+      }).map((mm) => mm.id);
+      onRectSelect(ids, ev.shiftKey);
+    };
+    svg.addEventListener('pointermove', onPointerMove);
+    svg.addEventListener('pointerup', onPointerUp);
+  });
+
   for (const m of modules) {
     const def = defs[m.typeName];
     const mh = (def?.height ?? 2) * GRID_Y;
@@ -251,7 +311,7 @@ export function renderArea(
         });
       }
     }
-    attachDrag(g, svg, m, onSelect, onMove);
+    attachModuleDrag(g, m);
     groups.set(m.id, g);
     modLayer.appendChild(g);
   }
@@ -304,8 +364,8 @@ export function renderArea(
 
   return {
     svg,
-    select(moduleId) {
-      groups.forEach((g, id) => g.classList.toggle('selected', id === moduleId));
+    select(moduleIds) {
+      groups.forEach((g, id) => g.classList.toggle('selected', moduleIds.has(id)));
     },
     clearCableSelection: clearCableSel,
   };

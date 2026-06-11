@@ -1,3 +1,66 @@
+# Phase 4b — Ergebnis Teil 7: Multi-Select (2026-06-11)
+
+**Status: ✅ Rechteck-/Shift-Klick-Auswahl, Block-Drag, Selektion kopieren
+(inkl. interner Kabel) und löschen — je EIN Undo-Eintrag, am echten G2 verifiziert.**
+
+## Verifiziert (Skript + Browser gegen echten G2, Patch „Basslines FM4")
+
+- `scripts/ws-multiselect-test.py`: zwei Module + internes Kabel angelegt,
+  `copySelection` (Kopien übernehmen Params tief + internes Kabel samt Farbe,
+  `selectionCopied` liefert die neuen Indizes), Unabhängigkeits-Check,
+  `moveModules` als Block, Undo-Kette (EIN Undo je Block-Op; copySelection-Undo
+  entfernt Kopien+Kabel, Redo bringt alles inkl. Param-Stand zurück),
+  `deleteModules`-Undo restauriert Module UND internes Kabel — Endzustand =
+  Ausgangszustand, Journal sauber
+- Browser (Mac-Chrome per IP, synthetische Events): Gummiband wählt 2 Module,
+  Shift-Klick toggelt ein drittes, Drag verschiebt den Block (28:0→2, 1:1→3),
+  Cmd+Z stellt BEIDE wieder her (Auswahl überlebt das Re-Render), ⌘C/⌘V erzeugt
+  Kopien und selektiert sie (selectionCopied), Entf löscht die Selektion —
+  Patch exakt im Ausgangszustand (36 Module / 49 Kabel)
+
+## Umsetzung
+
+- **Protokoll v1**: `moveModules {area, moves:[{module,col,row}]}`,
+  `deleteModules {area, modules}`, `copySelection {area, modules, dCol, dRow}`;
+  Server antwortet mit den normalen Broadcasts, copySelection schließt mit
+  `selectionCopied {area, modules:[neue Indizes]}` ab (Client wählt die Kopien aus).
+- **Kollisionsregel für Selektionen** (`resolveCollisionsMulti`): anders als beim
+  Einzel-Move weicht NICHT die Selektion aus (der Block bliebe sonst nicht starr) —
+  überlappende Bestands-Module rutschen unter den Block und kaskadieren.
+  Einzel-Operationen behalten das alte Verhalten (Modul taucht unter, Mehrfach-
+  Paste stapelt sich weiter von selbst).
+- **copySelection**: tiefe Param-Kopie je Modul über `deepCopyRecord` (aus
+  copyModule extrahiert — gleiche FieldValues-Falle), interne Kabel (beide Enden
+  in der Selektion) werden auf die neuen Indizes umgeschrieben und mit
+  `colorOverride` farberhaltend nachgezogen. Undo löscht die Kopien (Kabel
+  kaskadieren); Redo restauriert aus den finalen Records + Kabel-Snaps.
+- **deleteModules**: Kabel-Snapshots EINMAL über die ganze Selektion (sonst
+  Duplikate für interne Kabel); Undo restauriert erst alle Module, dann alle
+  Kabel (interne brauchen beide Enden).
+- **Frontend**: Auswahl ist jetzt `{area, ids[]}` EINER Area; Gummiband auf
+  leerer Fläche (Shift = additiv), Shift-Klick toggelt, Klick ohne Bewegung auf
+  leerer Fläche hebt auf. Drag eines selektierten Moduls zieht die ganze
+  Selektion als Block mit (min-Offsets klemmen am Grid-Rand); 1 Modul → alte
+  Einzel-Messages (moveModule/copyModule/deleteModule), sonst Block-Messages.
+  Param-Panel zeigt bei Mehrfach-Auswahl einen Hinweis statt Params.
+
+## Stolpersteine
+
+- **Alter Bundle-Cache (wieder)**: Tab zeigte nach Deploy das alte JS-Bundle —
+  Gummiband „funktionierte nicht". Erst `location.reload(true)` lud das neue
+  Bundle; vor Browser-Tests IMMER `script.src` gegen das servierte index.html
+  prüfen.
+- Synthetische PointerEvents brauchen `pointerId: 1` (Maus-Pointer);
+  `setPointerCapture` schluckt das klaglos.
+
+## Offen (→ Teil 8+)
+
+1. Morph-/Patch-Settings, Slot-Handling A–D, Performance-Mode.
+2. Undo-Feedback im UI (Stack-Tiefe/Label anzeigen).
+3. Kopieren über Areas hinweg (va↔fx) / zwischen Slots.
+
+---
+
 # Phase 4b — Ergebnis Teil 6: copyModule / Cmd+C+V (2026-06-11)
 
 **Status: ✅ Modul kopieren (inkl. Params/Farbe/Name/Labels) mit Undo, am echten G2 verifiziert.**

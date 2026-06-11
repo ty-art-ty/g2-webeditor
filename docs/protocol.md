@@ -101,6 +101,20 @@ Default-Werten für 10 Variationen). Delete löscht erst alle hängenden Kabel
 (tiefe Kopie!), Farbe, Name und Custom-Labels; neuen Index vergibt der Server,
 Antwort = `moduleAdded`, Kollisionen wie addModule, Undo = Löschen.
 
+**moveModules/deleteModules/copySelection** (v1, Multi-Select): wirken auf eine
+Selektion EINER Area und bilden je EINEN Undo-Eintrag.
+`moveModules {area, moves:[{module,col,row}]}` verschiebt die Selektion als
+starren Block; `deleteModules {area, modules:[…]}` löscht sie (Undo restauriert
+Module UND alle Kabel, auch die internen); `copySelection {area, modules:[…],
+dCol, dRow}` dupliziert sie versetzt um (dCol,dRow) mit tiefer Param-Kopie wie
+copyModule und kopiert interne Kabel (beide Enden in der Selektion, Farbe
+erhalten) auf die neuen Indizes mit. Antworten sind die normalen Broadcasts
+(moduleMoved/moduleAdded/cableAdded/…); copySelection schließt mit
+`selectionCopied {area, modules:[neue Indizes]}` ab, damit Clients die frischen
+Kopien auswählen können. Kollisionsregel für Selektionen: anders als beim
+Einzel-Move weicht NICHT die Selektion aus (der Block bliebe sonst nicht starr) —
+überlappende Bestands-Module rutschen unter den Block und kaskadieren.
+
 **renameModule/setModuleColor** (v1): Name max 16 ASCII-Zeichen.
 Wire-Formate: `S_SET_MODULE_LABEL` 0x33 `[33, loc, index, name\0]`,
 `S_SET_MODULE_COLOR` 0x31 `[31, loc, index, color]` (color 0–24).
