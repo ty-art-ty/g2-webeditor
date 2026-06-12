@@ -1,10 +1,12 @@
 // Original-Layout der Modulflächen: rendert die Controls aus module-defs.json
 // (g2fx module-uis.yaml) als SVG in die Modul-Gruppe. Interaktiv: Knobs (Drag),
 // Buttons/Radio/IncDec/PartSelector (Klick) — senden setParam/setMode.
-// LED/MiniVU/Graph sind statische Platzhalter (bräuchten DSP-Feedback).
+// LED/MiniVU leben von den "visuals"-Broadcasts (m.visuals + applyVisual),
+// Graph-Kurven rechnet graphfuncs.ts aus den Param-Werten.
 
 import type { ControlDef, Module, ModuleDef } from './protocol';
 import { formatTextFunc } from './textfuncs';
+import { renderGraph } from './graphfuncs';
 
 export interface ControlCtx {
   /**
@@ -281,6 +283,100 @@ function symbol(g: SVGGElement, c: ControlDef) {
   }
 }
 
+// ---- LED / MiniVU (live über "visuals"-Broadcasts) ---------------------------
+
+const LED_OFF = '#1d4d1d', LED_ON = '#35e835';
+const VU_COLORS = [
+  { off: '#005500', on: '#00ff00' }, // grün  (Level 1–7)
+  { off: '#555500', on: '#ffff00' }, // gelb  (8–9)
+  { off: '#550000', on: '#ff0000' }, // rot   (10)
+];
+const vuBand = (lv: number) => (lv <= 7 ? 0 : lv <= 9 ? 1 : 2);
+
+/** Aktueller Visual-Wert aus dem Client-State (kommt aus "visuals"). */
+const visVal = (m: Module, kind: 'led' | 'meter', g: number) =>
+  m.visuals?.[`${kind}:${g}`] ?? 0;
+
+function led(g: SVGGElement, c: ControlDef, m: Module) {
+  // Einzel-LED hört auf "led:<g>", Gruppen-LED auf "meter:<g>" (an wenn == CodeRef)
+  const kind = c.grp ? 'meter' : 'led';
+  const v = visVal(m, kind, c.g ?? 0);
+  const lit = c.grp ? v === (c.p ?? 0) : v > 0;
+  const e = c.lt === 'Sequencer'
+    ? el('rect', { x: c.x, y: c.y, width: 8, height: 4, fill: lit ? LED_ON : LED_OFF, stroke: '#143314' })
+    : el('circle', { cx: c.x + 2.5, cy: c.y + 2.5, r: 2.5, fill: lit ? LED_ON : LED_OFF, stroke: '#143314' });
+  e.setAttribute('data-vis', kind === 'led' ? 'led' : 'gled');
+  e.setAttribute('data-g', String(c.g ?? 0));
+  e.setAttribute('data-ref', String(c.p ?? 0));
+  g.appendChild(e);
+}
+
+/** 10 Segmente wie g2gui VuMeter: 7 grün (1 Einheit), 2 gelb + 1 rot (je 2). */
+function miniVU(g: SVGGElement, c: ControlDef, m: Module) {
+  const vert = c.vert !== false;
+  const W = vert ? 5 : 13, H = vert ? 13 : 5;
+  const grp = el('g', { 'data-vis': 'vu', 'data-g': c.g ?? 0 });
+  grp.appendChild(el('rect', {
+    x: c.x - 0.5, y: c.y - 0.5, width: W + 1, height: H + 1, fill: '#111', stroke: '#444',
+  }));
+  const level = visVal(m, 'meter', c.g ?? 0);
+  const unit = (vert ? H : W) / 13;
+  let pos = vert ? c.y + H : c.x; // vertikal: von unten nach oben; horizontal: links->rechts
+  for (let i = 1; i <= 10; i++) {
+    const band = vuBand(i);
+    const len = band === 0 ? unit : unit * 2;
+    if (vert) pos -= len;
+    const colors = VU_COLORS[band];
+    const r = vert
+      ? el('rect', { x: c.x, y: pos, width: W, height: len })
+      : el('rect', { x: pos, y: c.y, width: len, height: H });
+    r.setAttribute('data-lv', String(i));
+    r.setAttribute('fill', i <= level ? colors.on : colors.off);
+    if (!vert) pos += len;
+    grp.appendChild(r);
+  }
+  g.appendChild(grp);
+}
+
+// Peak-Hold pro VU-Element (1 s wie g2gui), lebt am DOM-Knoten
+const vuPeaks = new WeakMap<Element, { peak: number; level: number; timer: number }>();
+
+/**
+ * Visual-Update in-place anwenden (ohne Control-Layer-Rebuild — der läuft bei
+ * jedem paramChanged und liest die Werte dann aus m.visuals).
+ * kind "led" = Einzel-LEDs (0x39), "meter" = VUs + LED-Gruppen (0x3a).
+ */
+export function applyVisual(host: SVGGElement, kind: 'led' | 'meter', g: number, value: number): void {
+  if (kind === 'led') {
+    host.querySelectorAll(`[data-vis="led"][data-g="${g}"]`).forEach((e) =>
+      e.setAttribute('fill', value > 0 ? LED_ON : LED_OFF));
+    return;
+  }
+  host.querySelectorAll(`[data-vis="gled"][data-g="${g}"]`).forEach((e) =>
+    e.setAttribute('fill', value === Number(e.getAttribute('data-ref')) ? LED_ON : LED_OFF));
+  host.querySelectorAll(`[data-vis="vu"][data-g="${g}"]`).forEach((vu) => {
+    let st = vuPeaks.get(vu);
+    if (!st) { st = { peak: 0, level: 0, timer: 0 }; vuPeaks.set(vu, st); }
+    const s = st;
+    s.level = value;
+    const paint = () => {
+      vu.querySelectorAll('[data-lv]').forEach((r) => {
+        const lv = Number(r.getAttribute('data-lv'));
+        const colors = VU_COLORS[vuBand(lv)];
+        const lit = lv <= s.level || (lv === s.peak && s.peak > 7);
+        r.setAttribute('fill', lit ? colors.on : colors.off);
+      });
+    };
+    clearTimeout(s.timer);
+    if (value >= s.peak) {
+      s.peak = value;
+    } else {
+      s.timer = window.setTimeout(() => { s.peak = 0; paint(); }, 1000);
+    }
+    paint();
+  });
+}
+
 // ---- TextField --------------------------------------------------------------
 
 function textField(g: SVGGElement, c: ControlDef, m: Module) {
@@ -336,23 +432,17 @@ export function renderControls(host: SVGGElement, m: Module, def: ModuleDef,
       case 'PartSelector': partSelector(g, c, m, ctx); break;
       case 'LevelShift': levelShift(g, c, m, ctx); break;
       case 'TextField': textField(g, c, m); break;
-      case 'Led':
-        g.appendChild(c.lt === 'Sequencer'
-          ? el('rect', { x: c.x, y: c.y, width: 4, height: 4, fill: '#1d4d1d', stroke: '#143314' })
-          : el('circle', { cx: c.x + 2.5, cy: c.y + 2.5, r: 2.5, fill: '#1d4d1d', stroke: '#143314' }));
-        break;
-      case 'MiniVU':
-        g.appendChild(el('rect', {
-          x: c.x, y: c.y, width: c.vert === false ? 13 : 4, height: c.vert === false ? 4 : 13,
-          fill: '#16181c', stroke: '#444',
-        }));
-        break;
-      case 'Graph':
-        g.appendChild(el('rect', {
+      case 'Led': led(g, c, m); break;
+      case 'MiniVU': miniVU(g, c, m); break;
+      case 'Graph': {
+        const depVals = (c.deps ?? []).map((d) => depVal(m, d));
+        const gg = renderGraph(c, depVals, m.typeName);
+        g.appendChild(gg ?? el('rect', {
           x: c.x, y: c.y, width: c.w ?? 30, height: c.h ?? 20, rx: 1,
           fill: '#20241d', stroke: '#555',
         }));
         break;
+      }
     }
   }
   // Vor den Ports einfügen (data-conn), damit die Ports klickbar obenauf bleiben

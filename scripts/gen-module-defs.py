@@ -119,13 +119,23 @@ def control(c: dict) -> dict | None:
             out["w"], out["h"] = c["Width"], c["Height"]
             out["imgs"], out["iw"] = c.get("Images", []), c.get("ImageWidth", 0)
         case "Led":
+            # p = CodeRef (bei Gruppen: an wenn Gruppenwert == CodeRef),
+            # g = GroupId = Visual-Index in g2lib (leds bzw. metersAndGroups)
             out["lt"] = c["Type"]
+            out["g"] = c.get("GroupId", 0)
+            if c.get("LedGroup") or c["Type"] == "Sequencer":
+                out["grp"] = True
         case "MiniVU":
             out["vert"] = c["Orientation"] == "Vertical"
+            out["g"] = c.get("GroupId", 0)
         case "LevelShift":
             pass  # nur cls/x/y/p
         case "Graph":
             out["w"], out["h"] = c["Width"], c["Height"]
+            out["gf"] = c.get("GraphFunc", 0)
+            # wie TextField: Param-Indizes positional, "S<n>" = Mode-Index
+            out["deps"] = [d if d.startswith("S") else int(d)
+                           for d in str(c.get("Dependencies", "")).split(",") if d != ""]
         case _:
             return None
     return out

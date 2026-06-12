@@ -7,12 +7,14 @@ public class PatchVisual {
 
     private final AreaId area;
     private final String module;
+    private final int moduleIndex; // lokaler Patch (g2web): Modul-Index für Broadcasts
     private final Visual visual;
     private final LibProperty<Integer> value = new LibProperty<>(0);
 
-    public PatchVisual(AreaId area, String module, Visual visual) {
+    public PatchVisual(AreaId area, String module, int moduleIndex, Visual visual) {
         this.area = area;
         this.module = module;
+        this.moduleIndex = moduleIndex;
         this.visual = visual;
     }
 
@@ -35,6 +37,10 @@ public class PatchVisual {
 
     public AreaId getArea() {
         return area;
+    }
+
+    public int getModuleIndex() {
+        return moduleIndex;
     }
 
     public Visual getVisual() {

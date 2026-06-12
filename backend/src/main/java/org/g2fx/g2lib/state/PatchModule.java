@@ -219,7 +219,7 @@ public class PatchModule {
             vs.addAll(mt.getVisuals().get(Visual.VisualType.Meter));
             vs.addAll(mt.getVisuals().get(Visual.VisualType.LedGroup));
         }
-        return vs.stream().map(v -> new PatchVisual(area, userModuleData.getType() + ":" + userModuleData.getIndex(), v)).toList();
+        return vs.stream().map(v -> new PatchVisual(area, userModuleData.getType() + ":" + userModuleData.getIndex(), userModuleData.getIndex(), v)).toList();
     }
 
     public List<PatchVisual> getLeds() {

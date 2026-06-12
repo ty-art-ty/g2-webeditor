@@ -1,3 +1,75 @@
+# Phase 4b — Ergebnis Teil 13: LED/VU live + Graph-Kurven (2026-06-12)
+
+**Status: ✅ LED-/VU-Streaming (G2 → Browser, neue `visuals`-Message) und
+Env-/Filter-Graph-Kurven statt Platzhalter, am echten G2 verifiziert.**
+
+## Verifiziert (Skript + headless Chrome/CDP gegen echten G2, Patch „rrr")
+
+- `scripts/ws-visuals-test.py` (auf dem Pi): visuals-Messages strukturell
+  valide (Slot/Area/Modul/GroupId passen zum patchState); frisch angelegter
+  LfoC blinkt — Monitor-LED liefert 0 UND 1 über den vollen Pfad
+  G2 → 0x39 → g2lib → Listener → Flush → WebSocket; Aufräumen ok, PASS
+- Browser-DOM (headless Chrome via CDP, Extension war offline): LfoC-LED
+  wechselt sichtbar die Farbe (#1d4d1d/#35e835), 9 VUs à 10 Segmente,
+  10 Gruppen-LEDs, 2 Env-Kurven gerendert (EnvADSR exp, EnvMulti); nach
+  deleteModule wieder exakt 19 Module — Journal ohne 0x7e/SEVERE
+- Nicht explizit gesehen: VU-AUSSCHLAG mit echtem Audio (Patch war still;
+  Wert-0-Updates und Wire-Mapping identisch zum LED-Pfad) — beim nächsten
+  Spielen am Gerät gegenchecken
+
+## Umsetzung
+
+- **g2lib parst 0x39/0x3a längst** (`PatchVisuals.readLedData/readVolumeData`
+  → `PatchVisual`-LibPropertys; Listener feuern nur bei Wert-ÄNDERUNG).
+  Vendored-Patches: `PatchVisual` trägt jetzt den Modul-Index (für Broadcasts);
+  die ~50ms-Logs auf FINE (Journal-Spam).
+- **Backend**: `attachModuleParamListeners` hängt zusätzlich Listener an
+  `getLeds()`/`getMetersAndGroups()`; Änderungen landen in einer Map
+  (letzter Wert pro Visual gewinnt) und ein Daemon-Ticker flusht alle 33 ms
+  EINE `visuals`-Message je Slot: `{leds:[[area,mod,g,value]…],
+  meters:[[…]]}` — leds = Einzel-LEDs (0x39), meters = VUs + LED-Gruppen
+  (Radio-Wert, 0x3a). **WICHTIG**: Die Wire-Reihenfolge der Visuals folgt dem
+  Modulbestand — `updateVisualIndex()` wird jetzt nach JEDEM addModule/
+  copyModule/copySelection/restoreModule/deleteModuleInternal aufgerufen
+  (g2lib tat das nur beim Patch-Load; sonst verschöbe sich das Mapping —
+  dieselbe Falle wie Morph-Gruppen in Teil 12).
+- **Generator**: Led exportiert `g` (GroupId = Visual-Index) + `grp`
+  (LedGroup/Sequencer), MiniVU `g`, Graph `gf` (GraphFunc) + `deps`
+  (positional wie TextField). module-defs.json regeneriert.
+- **Frontend**: `visuals`-Handler aktualisiert LEDs/VUs IN-PLACE über
+  data-Attribute (`applyVisual`, kein Control-Layer-Rebuild bei 30 Hz);
+  Werte liegen zusätzlich in `m.visuals`, damit Rebuilds (paramChanged)
+  den Stand behalten. Gruppen-LED an wenn Gruppenwert == CodeRef. VU =
+  10 Segmente (7 grün/2 gelb/1 rot, Einheiten 1/1/2/2 wie g2gui VuMeter)
+  mit 1 s Peak-Hold. `graphfuncs.ts` portiert g2gui EnvGraphs/Graphs:
+  GraphFunc 1 (ADR), 3 (ADSR), 6 (D), 7 (H), 17 (Multi), 23 (ADDSR),
+  28 (AHD, nur EnvAHD — Env_ModAHD bleibt wie in g2gui leer) als SVG-Pfade
+  (exp/lin/log-Segmente, Shape-Tabellen) + 20 (FltClassic-Frequenzgang,
+  cutoff = 440·2^((n−60)/12)); übrige GraphFuncs behalten die
+  Platzhalter-Box (wie g2gui).
+
+## Stolpersteine
+
+- **Cowork-Sandbox erreicht weder LAN noch JDK-Mirrors** — Deploy/Tests
+  liefen via Desktop-Commander-MCP auf dem Mac. Frontend-`node_modules` aus
+  der Sandbox (linux-arm64) sind auf dem Mac unbrauchbar →
+  `rm -rf node_modules`, und wegen `NODE_ENV=production` + npm-config
+  `omit=dev` explizit `NODE_ENV=development npm install --include=dev`.
+- **Headless Chrome (`--headless=new`)**: Seite über `/json/new?url=…`
+  blieb leer — erst explizites `Page.navigate` über CDP lädt sie; mDNS
+  (.local) im headless-Modus unzuverlässig → IP verwenden.
+- Claude-in-Chrome-Extension war nicht verbunden — ein kleines CDP-Skript
+  (headless Chrome + Runtime.evaluate) ist ein brauchbarer Ersatz für DOM-Checks.
+
+## Offen (→ Teil 14+)
+
+1. Performance-Mode.
+2. VU-Ausschlag mit echtem Audio am Gerät gegenchecken.
+3. Restliche GraphFuncs (Wellenformen, Kurven-Shaper, …) nach Bedarf.
+4. Patch-Persistenz (.pch2-Export), Morph-Mode-Toggle/-Labels (Backlog Teil 12).
+
+---
+
 # Phase 4b — Ergebnis Teil 12: Morph-/Settings-Panel (2026-06-11)
 
 **Status: ✅ Patch-Settings-Panel (Gain/Glide/Bend/Vibrato/Arpeggiator/Misc +

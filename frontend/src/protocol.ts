@@ -14,6 +14,11 @@ export interface Mode {
 export interface Module {
   id: number; area: Area; typeName: string; name: string;
   row: number; col: number; color: number; params: Param[]; modes?: Mode[];
+  /**
+   * Letzte LED-/VU-Werte (nur Client-State, kommt aus "visuals"-Broadcasts).
+   * Key "led:<g>" = Einzel-LED, "meter:<g>" = VU/LED-Gruppe (g = GroupId).
+   */
+  visuals?: Record<string, number>;
 }
 export interface Cable {
   area: Area;
@@ -37,6 +42,11 @@ export interface ControlDef {
   sym?: string; w?: number; h?: number; img?: string; imgs?: string[]; iw?: number;
   kt?: string; push?: boolean; n?: number; bw?: number; cols?: number; rows?: number;
   deps?: (number | string)[]; tf?: number; mode?: boolean; lt?: string;
+  /** Led/MiniVU: GroupId = Visual-Index am Wire; grp: LED gehört zu einer Gruppe
+   *  (Wert kommt über "meters", an wenn Gruppenwert == p/CodeRef). */
+  g?: number; grp?: boolean;
+  /** Graph: GraphFunc-Nummer (Kurventyp); Param-Refs stehen in deps. */
+  gf?: number;
 }
 export interface ModuleDef {
   ix: number; height: number; inputs: ConnDef[]; outputs: ConnDef[];
@@ -102,11 +112,21 @@ export interface ModuleRenamed { type: 'moduleRenamed'; area: Area; module: numb
 export interface ModuleColorChanged { type: 'moduleColorChanged'; area: Area; module: number; color: number; }
 /** Abschluss von copySelection: die Indizes der frischen Kopien (für die Auswahl). */
 export interface SelectionCopied { type: 'selectionCopied'; area: Area; modules: number[]; }
+/** Ein LED-/VU-Update: [area, module, g (GroupId), value]. */
+export type VisualUpdate = [Area, number, number, number];
+/**
+ * Gebündelte LED-/VU-Daten (Server flusht ~alle 33ms, nur geänderte Werte).
+ * leds = Einzel-LEDs (0/1), meters = VU-Meter (0–~13?) und LED-Gruppen
+ * (Radio-Wert; LED an wenn Wert == CodeRef der LED).
+ */
+export interface Visuals {
+  type: 'visuals'; slot?: string; leds: VisualUpdate[]; meters: VisualUpdate[];
+}
 export type ServerMessage =
   PatchState | ParamChanged | VariationChanged | Connection | ModuleMoved |
   CableAdded | CableDeleted | ModuleAdded | ModuleDeleted |
   ModuleRenamed | ModuleColorChanged | SelectionCopied | UndoState | ModeChanged |
-  MorphChanged;
+  MorphChanged | Visuals;
 
 export interface SetParam {
   type: 'setParam'; area: ParamArea; module: number; param: number; value: number; variation: number;

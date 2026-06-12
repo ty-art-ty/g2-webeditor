@@ -12,6 +12,7 @@ import org.g2fx.g2lib.state.Patch;
 import org.g2fx.g2lib.state.PatchArea;
 import org.g2fx.g2lib.state.PatchCable;
 import org.g2fx.g2lib.state.PatchModule;
+import org.g2fx.g2lib.state.PatchVisual;
 import org.g2fx.g2lib.state.Performance;
 import org.g2fx.g2lib.usb.UsbService;
 import org.g2fx.g2lib.util.Util;
@@ -109,6 +110,17 @@ public final class G2LibService implements G2Service {
         emit(st);
     }
 
+    // ---------------- LED/VU-Streaming ----------------
+    // Der G2 streamt 0x39 (LED) / 0x3a (VU/Gruppen) im ~50ms-Takt; g2lib parst sie
+    // in PatchVisual-LibPropertys (Listener feuern nur bei WERT-Änderung, auf dem
+    // Dispatcher-Thread). Wir sammeln Änderungen und flushen gebündelt als EINE
+    // "visuals"-Message — letzter Wert pro Visual gewinnt (Map-Key).
+
+    private static final long VISUALS_FLUSH_MS = 33;
+    private final Object visualsLock = new Object();
+    /** key slot/area/kind/module/g -> {slot, area, module, g, value} */
+    private final Map<String, Object[]> pendingVisuals = new LinkedHashMap<>();
+
     private volatile boolean connected;
     private volatile int variation = 0;
     /** Letzter Bank-Snapshot vom Gerät: type -> bank -> entry -> Entry. */
@@ -167,6 +179,14 @@ public final class G2LibService implements G2Service {
         });
 
         usbService.start();
+
+        // Flush-Ticker für LED/VU-Broadcasts (Daemon; emit ist threadsicher)
+        java.util.concurrent.Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "g2web-visuals-flush");
+            t.setDaemon(true);
+            return t;
+        }).scheduleAtFixedRate(this::flushVisuals, VISUALS_FLUSH_MS, VISUALS_FLUSH_MS,
+                TimeUnit.MILLISECONDS);
 
         // Ohne sauberes Release bleibt der G2 in einem Zustand, in dem der nächste
         // Prozess nicht mehr connecten kann (dann hilft nur usbreset).
@@ -670,6 +690,7 @@ public final class G2LibService implements G2Service {
                             new org.g2fx.g2lib.state.Coords(col, row)));
             PatchModule m = created.get(0);
             attachModuleParamListeners(patch.getSlot().name(), area, m);
+            patch.getVisuals().updateVisualIndex(); // LED-/VU-Wire-Reihenfolge folgt dem Modulbestand
             // Vorher-Koordinaten (ohne das neue Modul) für Undo der Verdrängungen
             Map<Integer, int[]> before = snapshotCoords(pa);
             before.remove(index);
@@ -719,6 +740,7 @@ public final class G2LibService implements G2Service {
                     new org.g2fx.g2gui.module.ModuleDelta(List.of(rec), List.of(), true));
             PatchModule m = created.get(0);
             attachModuleParamListeners(patch.getSlot().name(), area, m);
+            patch.getVisuals().updateVisualIndex();
             // Ab hier identisch zu addModule: Kollisionen, Emits, Undo
             Map<Integer, int[]> before = snapshotCoords(pa);
             before.remove(index);
@@ -810,6 +832,7 @@ public final class G2LibService implements G2Service {
                 attachModuleParamListeners(patch.getSlot().name(), area, m);
                 copies.add(m);
             }
+            patch.getVisuals().updateVisualIndex();
             // Kollisionen: Anders als beim Einzel-Move weicht hier NICHT die Selektion
             // aus (der Block bliebe sonst nicht starr) — überlappende Bestands-Module
             // rutschen unter den Block und kaskadieren.
@@ -982,6 +1005,7 @@ public final class G2LibService implements G2Service {
                 List.of(rec), List.of(), true));
         PatchModule m = created.get(0);
         attachModuleParamListeners(patch.getSlot().name(), area, m);
+        patch.getVisuals().updateVisualIndex();
         emit(Map.of("type", "moduleAdded", "module", moduleOf(m, area)));
         for (CableSnap c : cables) {
             addCableInternal(p, area, c.fromModule(), c.fromConn(), c.fromOutput(),
@@ -1089,6 +1113,7 @@ public final class G2LibService implements G2Service {
                     "to", Map.of("module", c.getDestModule(), "conn", c.getDestConn())));
         }
         pa.getModules().remove(m); // Collection-View der TreeMap → entfernt aus Map
+        patch.getVisuals().updateVisualIndex();
         patch.getSlotSender().sendSlotRequest("delete-module", S_DEL_MODULE,
                 areaId.ordinal(), module);
         emit(Map.of("type", "moduleDeleted", "area", area, "module", module));
@@ -1411,6 +1436,51 @@ public final class G2LibService implements G2Service {
                                 "slot", slot, "area", areaName,
                                 "module", moduleId, "mode", mode, "value", n)));
             }
+            // LED/VU: Visual-Werte (0x39/0x3a) gebündelt broadcasten. Die
+            // PatchVisual-Objekte leben am Modul (einmal anhängen genügt);
+            // die Reihenfolge fürs Wire-Mapping pflegt PatchVisuals.updateVisualIndex.
+            for (PatchVisual v : m.getLeds()) attachVisualListener(slot, areaName, "led", v);
+            for (PatchVisual v : m.getMetersAndGroups()) attachVisualListener(slot, areaName, "meter", v);
+        }
+    }
+
+    /** Visual-Änderung in die Flush-Map legen; g = Visual-Index (= GroupId der UI). */
+    private void attachVisualListener(String slot, String areaName, String kind, PatchVisual v) {
+        final int module = v.getModuleIndex();
+        final int g = v.getVisual().index();
+        v.value().addListener((o, n) -> {
+            synchronized (visualsLock) {
+                pendingVisuals.put(slot + "/" + areaName + "/" + kind + "/" + module + "/" + g,
+                        new Object[]{slot, areaName, kind, module, g, n});
+            }
+        });
+    }
+
+    /** Ticker: gesammelte Visual-Änderungen als eine Message je Slot broadcasten. */
+    private void flushVisuals() {
+        List<Object[]> drained;
+        synchronized (visualsLock) {
+            if (pendingVisuals.isEmpty()) return;
+            drained = new ArrayList<>(pendingVisuals.values());
+            pendingVisuals.clear();
+        }
+        // nach Slot gruppieren (praktisch immer nur der aktive)
+        Map<String, List<List<Object>>> leds = new LinkedHashMap<>();
+        Map<String, List<List<Object>>> meters = new LinkedHashMap<>();
+        for (Object[] e : drained) {
+            var target = "led".equals(e[2]) ? leds : meters;
+            target.computeIfAbsent((String) e[0], k -> new ArrayList<>())
+                    .add(List.of(e[1], e[3], e[4], e[5])); // [area, module, g, value]
+        }
+        java.util.Set<String> slots = new java.util.LinkedHashSet<>(leds.keySet());
+        slots.addAll(meters.keySet());
+        for (String slot : slots) {
+            Map<String, Object> msg = new LinkedHashMap<>();
+            msg.put("type", "visuals");
+            msg.put("slot", slot);
+            msg.put("leds", leds.getOrDefault(slot, List.of()));
+            msg.put("meters", meters.getOrDefault(slot, List.of()));
+            emit(msg);
         }
     }
 

@@ -30,12 +30,12 @@ public class PatchVisuals {
         leds.clear();
         voiceArea.addVisuals(Visual.VisualType.Led,leds);
         fxArea.addVisuals(Visual.VisualType.Led,leds);
-        log.info(() -> "leds: " + leds);
+        log.fine(() -> "leds: " + leds); // lokal: fine statt info (läuft jetzt bei jedem Modul-Add/-Delete)
 
         metersAndGroups.clear();
         voiceArea.addVisuals(null,metersAndGroups);
         fxArea.addVisuals(null,metersAndGroups);
-        log.info(() -> "metersAndGroups: " + metersAndGroups);
+        log.fine(() -> "metersAndGroups: " + metersAndGroups);
     }
 
 
@@ -49,7 +49,7 @@ public class PatchVisuals {
                 updated.add(v);
             }
         });
-        log.info(() -> "readVolumeData: " + updated);
+        log.fine(() -> "readVolumeData: " + updated); // lokal: fine statt info (0x3a kommt im ~50ms-Takt)
         return dispatchSuccess(() -> "readVolumeData");
     }
 
@@ -67,7 +67,7 @@ public class PatchVisuals {
                 updated.add(v);
             }
         });
-        log.info(() -> "readLedData: " + updated);
+        log.fine(() -> "readLedData: " + updated); // lokal: fine statt info (0x39 kommt im ~50ms-Takt)
         return dispatchSuccess(() -> "readLedData");
     }
 

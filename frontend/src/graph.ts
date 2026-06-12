@@ -2,7 +2,7 @@
 // (Grid 255×15 px, Connector-Positionen aus module-defs.json).
 
 import type { Area, Cable, CableEnd, Module, ModuleDef, ModuleDefs } from './protocol';
-import { type ControlCtx, renderControls } from './controls';
+import { applyVisual, type ControlCtx, renderControls } from './controls';
 
 export const GRID_X = 255;
 export const GRID_Y = 15;
@@ -146,6 +146,8 @@ export interface AreaView {
   clearCableSelection(): void;
   /** Control-Layer eines Moduls neu aufbauen (nach param-/modeChanged). */
   updateModule(moduleId: number): void;
+  /** LED-/VU-Wert in-place anwenden (ohne Layer-Rebuild, ~30 Hz). */
+  updateVisual(moduleId: number, kind: 'led' | 'meter', g: number, value: number): void;
 }
 
 export function renderArea(
@@ -383,6 +385,10 @@ export function renderArea(
       const g = groups.get(moduleId);
       const def = m && defs[m.typeName];
       if (m && g && def) renderControls(g, m, def, ctl);
+    },
+    updateVisual(moduleId, kind, g, value) {
+      const grp = groups.get(moduleId);
+      if (grp) applyVisual(grp, kind, g, value);
     },
   };
 }

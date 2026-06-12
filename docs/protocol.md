@@ -54,6 +54,17 @@ TypeScript-Spiegel: `frontend/src/protocol.ts` — beide synchron halten.
 
 // G2 per USB verbunden/getrennt
 { "type": "connection", "connected": true }
+
+// LED-/VU-Daten (G2 streamt 0x39/0x3a; Server bündelt und flusht ~alle 33 ms,
+// nur GEÄNDERTE Werte — letzter Wert pro Visual gewinnt). Einträge sind
+// [area, module, g, value]; g = GroupId der Led/MiniVU-Controls in
+// module-defs.json (= Visual-Index in g2lib).
+//   leds   = Einzel-LEDs (value 0/1, Wire-Message 0x39)
+//   meters = VU-Meter (Pegelstufe) und LED-Gruppen/Sequencer (Radio-Wert;
+//            eine Gruppen-LED ist an, wenn value == ihr CodeRef) — 0x3a
+{ "type": "visuals", "slot": "A",
+  "leds":   [ ["va", 1, 0, 1] ],
+  "meters": [ ["va", 2, 0, 7], ["va", 5, 0, 12] ] }
 ```
 
 **Hinweis:** Modul-IDs sind nur *pro Area* eindeutig — `area` ("va"/"fx") gehört

@@ -195,6 +195,20 @@ function handle(msg: ServerMessage) {
     case 'connection':
       setConn(msg.connected, msg.connected ? 'G2 verbunden' : 'G2 getrennt');
       break;
+    case 'visuals': {
+      // LED-/VU-Daten (~30 Hz): in-place anwenden, KEIN Re-Render. Werte zudem
+      // in m.visuals merken, damit Control-Layer-Rebuilds den Stand behalten.
+      if (msg.slot && currentPatch && msg.slot !== currentPatch.slot) break;
+      for (const [kind, list] of [['led', msg.leds], ['meter', msg.meters]] as const) {
+        for (const [area, module, g, value] of list) {
+          const m = findModule(area, module);
+          if (!m) continue;
+          (m.visuals ??= {})[`${kind}:${g}`] = value;
+          areaViews.get(area)?.updateVisual(module, kind, g, value);
+        }
+      }
+      break;
+    }
   }
 }
 
