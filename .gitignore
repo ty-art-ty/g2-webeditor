@@ -4,3 +4,5 @@ backend/.gradle/
 backend/src/main/resources/g2data/
 frontend/node_modules/
 frontend/dist/
+.DS_Store
+__pycache__/
