@@ -121,6 +121,35 @@ public interface G2Service {
 
     void redo();
 
+    // ---------------- Performance-Mode ----------------
+
+    /** Perf-Bank-Liste vom Gerät (analog getBanks, EntryType Performance). */
+    List<Map<String, Object>> getPerfBanks();
+
+    /**
+     * Ganze Performance aus einer Perf-Bank laden (1-indexiert). Das Gerät baut
+     * danach alle 4 Slots neu auf; der Server broadcastet den frischen patchState.
+     */
+    void loadPerf(int bank, int entry);
+
+    /** Master-Clock-BPM setzen (30–240). Broadcastet "perfSettingsChanged". */
+    void setMasterClock(int bpm);
+
+    /** Master-Clock starten/stoppen. Broadcastet "perfSettingsChanged". */
+    void setClockRun(boolean run);
+
+    /** Keyboard-Split global an/aus. Broadcastet "perfSettingsChanged". */
+    void setKeyboardRangeEnabled(boolean enabled);
+
+    /**
+     * Slot-Einstellung setzen (slot 0–3). key: enabled|keyboard|hold (0/1)
+     * oder keyFrom|keyTo (MIDI-Note 0–127). Broadcastet "perfSettingsChanged".
+     */
+    void setPerfSlotSetting(int slot, String key, int value);
+
+    /** Performance umbenennen (max 16 ASCII-Zeichen). Broadcastet "perfSettingsChanged". */
+    void renamePerf(String name);
+
     /** Events vom G2 (Param-Änderungen am Gerät, Patch-Wechsel, Connect/Disconnect). */
     void onEvent(Consumer<Map<String, Object>> listener);
 }

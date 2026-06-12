@@ -91,9 +91,10 @@ Block-Verschieben/-Kopieren/-Löschen inkl. interner Kabel; serverseitiges
 Undo/Redo mit UI-Feedback; Slots A–D, Variations, Patch-Settings
 (Gain/Glide/Bend/Vibrato/Arpeggiator) und Morph-Zuweisungen; LED-/VU-Anzeigen
 live vom Gerät (gebündeltes `visuals`-Streaming) und Env-/Filter-Graph-Kurven
-(ADSR/ADDSR/ADR/AHD/Multi/D/H, FltClassic); Multi-Client via
-WebSocket-Broadcast. Offen: Performance-Mode, restliche GraphFuncs,
-Patch-Persistenz (.pch2-Export).
+(ADSR/ADDSR/ADR/AHD/Multi/D/H, FltClassic); Performance-Mode (Master-Clock,
+Slot-Enable/Keyboard/Hold, Key-Splits, Perf-Name/-Browser); Multi-Client via
+WebSocket-Broadcast. Offen: Perf speichern/laden-Verifikation, Global Knobs,
+restliche GraphFuncs, Patch-Persistenz (.pch2-Export).
 Details: `docs/phase*-ergebnis.md`.
 
 ### Struktur

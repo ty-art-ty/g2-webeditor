@@ -20,6 +20,7 @@ public final class MockG2Service implements G2Service {
         return Map.of(
             "type", "patchState",
             "name", "MockPatch",
+            "perfSettings", perfSettingsOf(),
             "variation", variation,
             "modules", List.of(
                 Map.of("id", 1, "typeName", "OscB", "row", 0, "col", 0,
@@ -154,6 +155,72 @@ public final class MockG2Service implements G2Service {
     @Override public void undo() { /* Mock: kein Verlauf */ }
 
     @Override public void redo() { /* Mock: kein Verlauf */ }
+
+    // ---------------- Performance-Mode (Mock: ein In-Memory-Settings-Satz) ----------------
+
+    private final Map<String, Object> perfSettings = new java.util.concurrent.ConcurrentHashMap<>(Map.of(
+            "name", "MockPerf", "clockBpm", 120, "clockRun", false,
+            "keyboardRangeEnabled", false));
+    private final List<Map<String, Object>> perfSlots = new ArrayList<>(List.of());
+
+    {
+        for (String s : List.of("A", "B", "C", "D")) {
+            Map<String, Object> sm = new java.util.HashMap<>();
+            sm.put("slot", s); sm.put("enabled", s.equals("A")); sm.put("keyboard", s.equals("A"));
+            sm.put("hold", false); sm.put("keyFrom", 0); sm.put("keyTo", 127);
+            perfSlots.add(sm);
+        }
+    }
+
+    private Map<String, Object> perfSettingsOf() {
+        Map<String, Object> out = new java.util.LinkedHashMap<>(perfSettings);
+        out.put("slots", perfSlots);
+        return out;
+    }
+
+    private void emitPerfSettings() {
+        Map<String, Object> msg = new java.util.LinkedHashMap<>(perfSettingsOf());
+        msg.put("type", "perfSettingsChanged");
+        emit(msg);
+    }
+
+    @Override
+    public List<Map<String, Object>> getPerfBanks() {
+        return List.of(Map.of("bank", 1, "patches",
+                List.of(Map.of("slot", 1, "name", "MockPerf"))));
+    }
+
+    @Override public void loadPerf(int bank, int entry) { emit(getPatchState()); }
+
+    @Override public void setMasterClock(int bpm) {
+        perfSettings.put("clockBpm", Math.max(30, Math.min(240, bpm)));
+        emitPerfSettings();
+    }
+
+    @Override public void setClockRun(boolean run) {
+        perfSettings.put("clockRun", run);
+        emitPerfSettings();
+    }
+
+    @Override public void setKeyboardRangeEnabled(boolean enabled) {
+        perfSettings.put("keyboardRangeEnabled", enabled);
+        emitPerfSettings();
+    }
+
+    @Override public void setPerfSlotSetting(int slot, String key, int value) {
+        Map<String, Object> sm = perfSlots.get(slot);
+        switch (key) {
+            case "enabled", "keyboard", "hold" -> sm.put(key, value != 0);
+            case "keyFrom", "keyTo" -> sm.put(key, Math.max(0, Math.min(127, value)));
+            default -> throw new IllegalArgumentException("Unbekannter key: " + key);
+        }
+        emitPerfSettings();
+    }
+
+    @Override public void renamePerf(String name) {
+        perfSettings.put("name", name.length() > 16 ? name.substring(0, 16) : name);
+        emitPerfSettings();
+    }
 
     @Override public void onEvent(Consumer<Map<String, Object>> l) { listeners.add(l); }
 

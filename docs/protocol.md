@@ -55,6 +55,15 @@ TypeScript-Spiegel: `frontend/src/protocol.ts` — beide synchron halten.
 // G2 per USB verbunden/getrennt
 { "type": "connection", "connected": true }
 
+// Performance-Settings geändert (von Clients oder vom Gerät, z.B. Clock).
+// Gleiche Struktur steckt als "perfSettings" im patchState. keyboard darf auf
+// mehreren Slots an sein (= Layer); keyFrom/keyTo greifen nur bei
+// keyboardRangeEnabled (MIDI-Noten 0–127).
+{ "type": "perfSettingsChanged", "name": "MyPerf",
+  "clockBpm": 120, "clockRun": false, "keyboardRangeEnabled": false,
+  "slots": [ { "slot": "A", "enabled": true, "keyboard": true, "hold": false,
+               "keyFrom": 0, "keyTo": 127 } /* …B,C,D */ ] }
+
 // LED-/VU-Daten (G2 streamt 0x39/0x3a; Server bündelt und flusht ~alle 33 ms,
 // nur GEÄNDERTE Werte — letzter Wert pro Visual gewinnt). Einträge sind
 // [area, module, g, value]; g = GroupId der Led/MiniVU-Controls in
@@ -87,7 +96,27 @@ daher in alle modulbezogenen Messages. Fehlt es bei `setParam`, nimmt der Server
 { "type": "setModuleColor", "area": "va", "module": 1, "color": 10 }
 { "type": "undo" }
 { "type": "redo" }
+
+// Performance-Mode (Teil 14). Perf-Settings-Änderungen sind NICHT im
+// Undo-Verlauf (wie setParam). Antworten kommen als perfSettingsChanged,
+// loadPerf antwortet mit komplettem patchState (alle 4 Slots neu!).
+{ "type": "loadPerf", "bank": 1, "slot": 2 }            // 1-indexiert
+{ "type": "setMasterClock", "bpm": 120 }                // 30–240
+{ "type": "setClockRun", "run": true }
+{ "type": "setKeyboardRangeEnabled", "enabled": true }
+{ "type": "setPerfSlotSetting", "slot": 1, "key": "enabled", "value": 1 }
+   // key: enabled|keyboard|hold (0/1) | keyFrom|keyTo (MIDI-Note 0–127)
+{ "type": "renamePerf", "name": "MyPerf" }
 ```
+
+**Performance-Mode** (v1, Teil 14): Wire-Formate (BVerhue `BVE.NMG2Mess.pas`):
+Master-Clock `[01,2c,ver, 3f, ff, 01, bpm]` bzw. `[…, 00, run]`; Perf-Name
+`[01,2c,ver, 29, name als Clavia-String]`; Slot-Settings als komplette
+Section 0x11 `[01,2c,ver, 11, len, payload]` (g2lib `Sections.writeSection`
+über die gerätegelesenen FieldValues — Unknown-Felder bleiben byte-treu);
+Perf-Load über `loadEntry` mit slotCode 4 (`S_PERF_04`) — Antwort ist
+LOAD_PERF, der Server baut die Performance neu auf und broadcastet patchState.
+REST: `GET /api/perfbanks` (Format wie /api/banks), `POST /api/perf/load`.
 
 **undo/redo** (v1): Serverseitiger Verlauf (max 100 Einträge, ein Stack für alle
 Clients) über alle Mutationen: moveModule (inkl. Kollisions-Pushes), addModule,

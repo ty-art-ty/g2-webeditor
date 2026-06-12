@@ -14,6 +14,9 @@ import org.g2fx.g2lib.state.PatchCable;
 import org.g2fx.g2lib.state.PatchModule;
 import org.g2fx.g2lib.state.PatchVisual;
 import org.g2fx.g2lib.state.Performance;
+import org.g2fx.g2lib.state.PerformanceSettings;
+import org.g2fx.g2lib.state.Slot;
+import org.g2fx.g2lib.state.SlotSettings;
 import org.g2fx.g2lib.usb.UsbService;
 import org.g2fx.g2lib.util.Util;
 import org.g2web.api.G2Service;
@@ -245,6 +248,120 @@ public final class G2LibService implements G2Service {
             int slotCode = devices.getCurrentPerf().getSelectedSlot().ordinal();
             d.getEntries().loadEntry(slotCode, bank - 1, entry - 1);
         });
+    }
+
+    @Override
+    public List<Map<String, Object>> getPerfBanks() {
+        List<Map<String, Object>> out = new ArrayList<>();
+        Map<Integer, Map<Integer, Entries.Entry>> perfBanks =
+                banks.getOrDefault(Entries.EntryType.Performance, Map.of());
+        perfBanks.forEach((bank, entries) -> {
+            List<Map<String, Object>> perfs = new ArrayList<>();
+            entries.forEach((ix, e) -> perfs.add(Map.of(
+                    "slot", ix + 1, "name", e.name(), "category", e.category())));
+            out.add(Map.of("bank", bank + 1, "patches", perfs));
+        });
+        return out;
+    }
+
+    @Override
+    public void loadPerf(int bank, int entry) {
+        // slotCode 4 = Performance (BVerhue Retrieve-Semantik, g2lib S_PERF_04).
+        // Das Gerät antwortet mit LOAD_PERF; der Perf-Lifecycle-Listener hängt
+        // dann Listener neu an und broadcastet den patchState.
+        devices.runWithCurrent(d -> {
+            clearUndo(); // Undo-Closures referenzieren die alte Performance
+            d.getEntries().loadEntry(org.g2fx.g2lib.protocol.Codes.S_PERF_04,
+                    bank - 1, entry - 1);
+        });
+    }
+
+    @Override
+    public void setMasterClock(int bpm) {
+        int v = Math.max(30, Math.min(240, bpm));
+        devices.runWithCurrentPerf(p -> {
+            p.getPerfSettings().masterClock().set(v); // lokal (Listener broadcastet)
+            // Wire (BVerhue CreateSetMasterClockBPMMessage): [01,2c,ver, 3f, ff, 01, bpm]
+            perfSender(p).sendPerfRequest(p.getVersion(), "set-master-clock",
+                    org.g2fx.g2lib.protocol.Codes.I_SET_MASTER_CLOCK, 0xff, 0x01, v);
+        });
+    }
+
+    @Override
+    public void setClockRun(boolean run) {
+        devices.runWithCurrentPerf(p -> {
+            p.getPerfSettings().masterClockRun().set(run);
+            // [01,2c,ver, 3f, ff, 00, run] (BVerhue CreateSetMasterClockRunMessage)
+            perfSender(p).sendPerfRequest(p.getVersion(), "set-clock-run",
+                    org.g2fx.g2lib.protocol.Codes.I_SET_MASTER_CLOCK, 0xff, 0x00, run ? 1 : 0);
+        });
+    }
+
+    @Override
+    public void setKeyboardRangeEnabled(boolean enabled) {
+        devices.runWithCurrentPerf(p -> {
+            p.getPerfSettings().keyboardRangeEnabled().set(enabled);
+            sendPerfSettings(p);
+        });
+    }
+
+    @Override
+    public void setPerfSlotSetting(int slot, String key, int value) {
+        devices.runWithCurrentPerf(p -> {
+            if (slot < 0 || slot > 3) throw new IllegalArgumentException("Slot 0–3: " + slot);
+            SlotSettings ss = p.getPerfSettings().getSlotSettings(Slot.fromIndex(slot));
+            switch (key) {
+                case "enabled" -> ss.enabled().set(value != 0);
+                case "keyboard" -> ss.keyboard().set(value != 0);
+                case "hold" -> ss.hold().set(value != 0);
+                case "keyFrom" -> ss.keyboardRangeFrom().set(clampNote(value));
+                case "keyTo" -> ss.keyboardRangeTo().set(clampNote(value));
+                default -> throw new IllegalArgumentException("Unbekannter key: " + key);
+            }
+            sendPerfSettings(p);
+        });
+    }
+
+    private static int clampNote(int v) {
+        return Math.max(0, Math.min(127, v));
+    }
+
+    @Override
+    public void renamePerf(String name) {
+        String n = name.length() > 16 ? name.substring(0, 16) : name;
+        devices.runWithCurrentPerf(p -> {
+            p.perfName().set(n); // lokal
+            // Wire (BVerhue CreateSetPerfNameMessage): [01,2c,ver, 29, name als Clavia-String]
+            byte[] nb = n.getBytes(java.nio.charset.StandardCharsets.US_ASCII);
+            int[] msg = new int[1 + nb.length + (nb.length < 16 ? 1 : 0)];
+            msg[0] = org.g2fx.g2lib.protocol.Codes.I_PERFORMANCE_NAME;
+            for (int i = 0; i < nb.length; i++) msg[1 + i] = nb[i] & 0xff;
+            perfSender(p).sendPerfRequest(p.getVersion(), "rename-perf", msg);
+            // Broadcast kommt vom perfName-Listener (attachListeners)
+        });
+    }
+
+    /**
+     * Komplette Perf-Settings (Section 0x11) ans Gerät senden — die Referenz-
+     * Editoren schreiben immer den ganzen Block (BVerhue CreateSetPerfSettingsMessage:
+     * [01,2c,ver, 11, len, payload]). Die g2lib-FieldValues enthalten auch die
+     * Unknown-Felder vom Gerät, bleiben also byte-treu. Broadcastet danach.
+     */
+    private void sendPerfSettings(Performance p) throws Exception {
+        java.nio.ByteBuffer buf = java.nio.ByteBuffer.allocate(512);
+        org.g2fx.g2lib.protocol.Sections.writeSection(buf,
+                org.g2fx.g2lib.protocol.Sections.SPerformanceSettings_11,
+                p.getPerfSettings().getFieldValues());
+        buf.flip();
+        int[] data = new int[buf.remaining()];
+        for (int i = 0; i < data.length; i++) data[i] = buf.get() & 0xff;
+        perfSender(p).sendPerfRequest(p.getVersion(), "set-perf-settings", data);
+        // Broadcast kommt von den Property-Listenern (attachListeners); LibProperty
+        // feuert nur bei WERT-Änderung — unveränderte Sets broadcasten nichts.
+    }
+
+    private static org.g2fx.g2lib.usb.UsbSender perfSender(Performance p) {
+        return p.getSelectedPatch().getSlotSender().getSender();
     }
 
     @Override
@@ -1162,6 +1279,36 @@ public final class G2LibService implements G2Service {
 
     // ------------------------------------------------------------------ State -> JSON
 
+    /** Performance-Settings (Name, Clock, Slot-Flags/-Ranges) als JSON-Struktur. */
+    private Map<String, Object> perfSettingsOf(Performance perf) {
+        PerformanceSettings ps = perf.getPerfSettings();
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("name", perf.getName());
+        out.put("clockBpm", ps.masterClock().get());
+        out.put("clockRun", ps.masterClockRun().get());
+        out.put("keyboardRangeEnabled", ps.keyboardRangeEnabled().get());
+        List<Map<String, Object>> slots = new ArrayList<>();
+        for (Slot s : Slot.values()) {
+            SlotSettings ss = ps.getSlotSettings(s);
+            Map<String, Object> sm = new LinkedHashMap<>();
+            sm.put("slot", s.name());
+            sm.put("enabled", ss.enabled().get());
+            sm.put("keyboard", ss.keyboard().get());
+            sm.put("hold", ss.hold().get());
+            sm.put("keyFrom", ss.keyboardRangeFrom().get());
+            sm.put("keyTo", ss.keyboardRangeTo().get());
+            slots.add(sm);
+        }
+        out.put("slots", slots);
+        return out;
+    }
+
+    private void emitPerfSettings(Performance perf) {
+        Map<String, Object> msg = new LinkedHashMap<>(perfSettingsOf(perf));
+        msg.put("type", "perfSettingsChanged");
+        emit(msg);
+    }
+
     /** Patch-State des gewählten Slots. Nur auf dem g2lib-Thread bzw. via invoke aufrufen. */
     private Map<String, Object> patchStateOf(Performance perf) {
         Patch patch = perf.getSelectedPatch();
@@ -1182,6 +1329,7 @@ public final class G2LibService implements G2Service {
             slots.add(Map.of("slot", sp.getSlot().name(), "name", n == null ? "" : n));
         }
         out.put("slots", slots);
+        out.put("perfSettings", perfSettingsOf(perf));
         out.put("undo", undoStateOf()); // damit frische Clients die Buttons korrekt zeigen
 
         List<Map<String, Object>> modules = new ArrayList<>();
@@ -1369,6 +1517,21 @@ public final class G2LibService implements G2Service {
             clearUndo();
             emit(patchStateOf(perf));
         });
+        // Perf-Settings (Clock, Slot-Flags, Name): auch Gerät-initiierte Änderungen
+        // (z.B. eingehende 0x3f-Clock-Messages) broadcasten
+        PerformanceSettings ps = perf.getPerfSettings();
+        ps.masterClock().addListener((o, n) -> emitPerfSettings(perf));
+        ps.masterClockRun().addListener((o, n) -> emitPerfSettings(perf));
+        ps.keyboardRangeEnabled().addListener((o, n) -> emitPerfSettings(perf));
+        perf.perfName().addListener((o, n) -> emitPerfSettings(perf));
+        for (Slot s : Slot.values()) {
+            SlotSettings ss = ps.getSlotSettings(s);
+            ss.enabled().addListener((o, n) -> emitPerfSettings(perf));
+            ss.keyboard().addListener((o, n) -> emitPerfSettings(perf));
+            ss.hold().addListener((o, n) -> emitPerfSettings(perf));
+            ss.keyboardRangeFrom().addListener((o, n) -> emitPerfSettings(perf));
+            ss.keyboardRangeTo().addListener((o, n) -> emitPerfSettings(perf));
+        }
         for (Patch p : perf.slots()) {
             attachPatchListeners(p);
         }

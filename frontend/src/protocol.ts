@@ -56,11 +56,26 @@ export type ModuleDefs = Record<string, ModuleDef>;
 /** /param-tables.json — Konstanten für die TextFunc-Formatter (null = -Inf). */
 export type ParamTables = Record<string, (number | string | null)[]>;
 
+/** Performance-Einstellungen eines Slots (Perf-Settings-Section 0x11). */
+export interface PerfSlotSettings {
+  slot: string; enabled: boolean; keyboard: boolean; hold: boolean;
+  /** Keyboard-Range (MIDI-Note 0–127), greift nur bei keyboardRangeEnabled. */
+  keyFrom: number; keyTo: number;
+}
+export interface PerfSettings {
+  name: string; clockBpm: number; clockRun: boolean;
+  keyboardRangeEnabled: boolean; slots: PerfSlotSettings[];
+}
+/** Broadcast nach jeder Perf-Settings-Änderung (auch Gerät-initiiert). */
+export interface PerfSettingsChanged extends PerfSettings { type: 'perfSettingsChanged'; }
+
 export interface PatchState {
   type: 'patchState'; connected: boolean;
   perf: string; slot: string; name: string; variation: number;
   /** Alle 4 Slots (A–D) mit Patch-Namen für die Slot-Leiste. */
   slots?: { slot: string; name: string }[];
+  /** Performance-Settings (Name, Master-Clock, Slot-Flags/-Ranges). */
+  perfSettings?: PerfSettings;
   /** Undo-Verlauf für die Buttons (Tiefen + Label der obersten Einträge). */
   undo?: UndoInfo;
   /** Patch-Settings: Pseudo-Module der Settings-Area (ohne Morphs). */
@@ -126,7 +141,7 @@ export type ServerMessage =
   PatchState | ParamChanged | VariationChanged | Connection | ModuleMoved |
   CableAdded | CableDeleted | ModuleAdded | ModuleDeleted |
   ModuleRenamed | ModuleColorChanged | SelectionCopied | UndoState | ModeChanged |
-  MorphChanged | Visuals;
+  MorphChanged | Visuals | PerfSettingsChanged;
 
 export interface SetParam {
   type: 'setParam'; area: ParamArea; module: number; param: number; value: number; variation: number;
@@ -173,11 +188,23 @@ export interface SetModuleColor { type: 'setModuleColor'; area: Area; module: nu
 /** Wirkung kommt als normale Broadcasts zurück; leerer Verlauf = no-op. */
 export interface Undo { type: 'undo'; }
 export interface Redo { type: 'redo'; }
+/** Ganze Performance aus Perf-Bank laden (1-indexiert); Antwort = patchState. */
+export interface LoadPerf { type: 'loadPerf'; bank: number; slot: number; }
+export interface SetMasterClock { type: 'setMasterClock'; bpm: number; }
+export interface SetClockRun { type: 'setClockRun'; run: boolean; }
+export interface SetKeyboardRangeEnabled { type: 'setKeyboardRangeEnabled'; enabled: boolean; }
+/** key: enabled|keyboard|hold (0/1) oder keyFrom|keyTo (0–127); slot 0–3. */
+export interface SetPerfSlotSetting {
+  type: 'setPerfSlotSetting'; slot: number; key: string; value: number;
+}
+export interface RenamePerf { type: 'renamePerf'; name: string; }
 export type ClientMessage =
   SetParam | SetMode | SetMorph | SelectVariation | SelectSlot | MoveModule | AddCable | DeleteCable |
   AddModule | CopyModule | DeleteModule | RenameModule | SetModuleColor |
   MoveModules | DeleteModules | CopySelection |
-  Undo | Redo;
+  Undo | Redo |
+  LoadPerf | SetMasterClock | SetClockRun | SetKeyboardRangeEnabled |
+  SetPerfSlotSetting | RenamePerf;
 
 // REST: /api/banks
 export interface BankEntry { slot: number; name: string; category?: number; }

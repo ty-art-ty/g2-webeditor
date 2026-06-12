@@ -39,6 +39,12 @@ public final class Main {
                 "service", g2.getClass().getSimpleName())));
         app.get("/api/patch", ctx -> ctx.json(g2.getPatchState()));
         app.get("/api/banks", ctx -> ctx.json(g2.getBanks()));
+        app.get("/api/perfbanks", ctx -> ctx.json(g2.getPerfBanks()));
+        app.post("/api/perf/load", ctx -> {
+            JsonNode req = JSON.readTree(ctx.body());
+            g2.loadPerf(req.get("bank").asInt(), req.get("slot").asInt());
+            ctx.status(202);
+        });
         app.post("/api/patch/load", ctx -> {
             JsonNode req = JSON.readTree(ctx.body());
             g2.loadPatch(req.get("bank").asInt(), req.get("slot").asInt());
@@ -133,6 +139,17 @@ public final class Main {
                             msg.get("color").asInt());
                     case "undo" -> g2.undo();
                     case "redo" -> g2.redo();
+                    case "loadPerf" -> g2.loadPerf(
+                            msg.get("bank").asInt(), msg.get("slot").asInt());
+                    case "setMasterClock" -> g2.setMasterClock(msg.get("bpm").asInt());
+                    case "setClockRun" -> g2.setClockRun(msg.get("run").asBoolean());
+                    case "setKeyboardRangeEnabled" -> g2.setKeyboardRangeEnabled(
+                            msg.get("enabled").asBoolean());
+                    case "setPerfSlotSetting" -> g2.setPerfSlotSetting(
+                            msg.get("slot").asInt(),
+                            msg.get("key").asText(),
+                            msg.get("value").asInt());
+                    case "renamePerf" -> g2.renamePerf(msg.get("name").asText());
                     default -> { /* unbekannte Message ignorieren, siehe docs/protocol.md */ }
                 }
             });

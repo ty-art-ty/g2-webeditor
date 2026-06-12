@@ -1,3 +1,69 @@
+# Phase 4b — Ergebnis Teil 14: Performance-Mode (2026-06-12)
+
+**Status: ✅ Perf-Settings (Master-Clock, Slot-Enable/Keyboard/Hold,
+Key-Ranges, Perf-Name) lesen/setzen + Perf-Bank-Browser, am echten G2
+verifiziert.** loadPerf implementiert, aber ungetestet (Gerät hat 0
+gespeicherte Performances); Browser-Check des neuen Panels steht aus
+(Pi ging während der Verifikation offline).
+
+## Verifiziert (Skript auf dem Pi gegen echten G2)
+
+- `scripts/ws-perf-test.py`: patchState trägt `perfSettings` (Name, Clock,
+  4 Slots mit enabled/keyboard/hold/keyFrom/keyTo); setMasterClock 120→126→120,
+  setClockRun, Slot-B-Hold-Toggle, keyboardRangeEnabled + A.keyFrom 0→36→0,
+  renamePerf — jede Änderung broadcastet `perfSettingsChanged`, alle Werte
+  am Ende exakt im Ausgangszustand, PASS
+- Nebenbefund: `visuals`-Broadcast mit echtem VU-Pegel (va/27 → 9) —
+  der offene Punkt „VU-Ausschlag mit echtem Audio“ aus Teil 13 ist damit ✓
+- `/api/perfbanks` liefert 0 Banks (Patch-Banks: 3) — das GERÄT hat keine
+  gespeicherten Performances; Abruf-Mechanik ist dieselbe wie bei Patches
+  (g2lib `readEntries` liest beide EntryTypes). loadPerf daher ungetestet.
+
+## Umsetzung
+
+- **Wire-Formate** (BVerhue `BVE.NMG2Mess.pas`): Master-Clock
+  `[01,2c,ver, 3f, ff, 01, bpm]` (Run: `…, 00, run`); Perf-Name
+  `[01,2c,ver, 29, Clavia-String]`; Slot-Settings als KOMPLETTE Section 0x11
+  über g2lib `Sections.writeSection` mit den gerätegelesenen FieldValues —
+  die Unknown-Felder bleiben dadurch byte-treu (Referenz-Editoren schreiben
+  ebenfalls immer den ganzen Block). Perf-Load = `loadEntry` mit slotCode 4
+  (`S_PERF_04`, BVerhue-Retrieve-Semantik); die Antwort LOAD_PERF baut die
+  Performance in g2lib neu auf → Perf-Lifecycle-Listener broadcastet patchState.
+- **Backend**: G2Service um getPerfBanks/loadPerf/setMasterClock/setClockRun/
+  setKeyboardRangeEnabled/setPerfSlotSetting/renamePerf erweitert (Mock
+  mit In-Memory-Settings). Properties werden LOKAL gesetzt (LibProperty sendet
+  nicht — bekannte Falle), dann explizit gesendet; die Broadcasts kommen von
+  Listenern auf den PerformanceSettings-/SlotSettings-Propertys
+  (attachListeners) — damit werden auch GERÄT-initiierte Änderungen
+  (eingehende 0x3f-Clock-Messages, g2lib `setMasterClock`) broadcastet.
+  LibProperty feuert nur bei Wert-ÄNDERUNG → keine Doppel-Broadcasts.
+  Perf-Settings sind NICHT im Undo-Verlauf (wie setParam). patchState trägt
+  `perfSettings`.
+- **Frontend**: Perf-Panel in der Sidebar (Name editierbar, BPM 30–240 +
+  Run, Keyboard-Split-Toggle, Slot-Tabelle On/Kbd/Hold + Range-Inputs mit
+  MIDI-Notennamen, disabled solange Split aus); Perf-Bank-Liste unter den
+  Patch-Banks (Klick lädt mit Warnhinweis im Tooltip — ersetzt alle 4 Slots).
+  `perfSettingsChanged` aktualisiert Panel + Header.
+
+## Stolperstein
+
+- Test-Skripte dürfen NICHT annehmen, dass die erste WS-Message der
+  patchState ist — seit Teil 13 kann sich ein `visuals`-Broadcast
+  dazwischenschieben (clients.add passiert vor dem initialen Send).
+  ws-perf-test wartet jetzt explizit auf patchState; ältere Skripte bei
+  Gelegenheit nachziehen.
+
+## Offen (→ Teil 15+)
+
+1. loadPerf am Gerät verifizieren (vorher eine Performance am G2 speichern
+   oder per Editor anlegen) + Browser-Check des Perf-Panels.
+2. Perf speichern (Store) — Entries.saveEntry ist in g2lib noch leer.
+3. Global Knobs (g2lib liest sie bereits).
+4. Patch-Persistenz (.pch2/.prf2-Export), restliche GraphFuncs,
+   Morph-Mode-Toggle/-Labels.
+
+---
+
 # Phase 4b — Ergebnis Teil 13: LED/VU live + Graph-Kurven (2026-06-12)
 
 **Status: ✅ LED-/VU-Streaming (G2 → Browser, neue `visuals`-Message) und

@@ -63,6 +63,25 @@
     #banks li:hover { background: var(--border); }
     #banks ul { padding-left: .6rem; margin: .3rem 0; }
 
+    /* Performance-Panel (Name, Master-Clock, Slot-Flags/-Ranges) */
+    #perfpanel { border: 1px solid var(--border); border-radius: 6px; padding: .5rem .6rem;
+      margin-bottom: .8rem; background: var(--panel); font-size: .78rem; }
+    #perfpanel .pname { width: 100%; padding: .2rem .35rem; border: 1px solid transparent;
+      border-radius: 3px; background: none; color: var(--accent); font: inherit;
+      font-size: .85rem; margin-bottom: .4rem; }
+    #perfpanel .pname:hover, #perfpanel .pname:focus {
+      border-color: var(--border); outline: none; background: #16171b; }
+    #perfpanel .row { display: flex; align-items: center; gap: .4rem; margin: .25rem 0; color: var(--dim); }
+    #perfpanel input[type=number] { width: 3.6rem; background: #16181c; color: var(--text);
+      border: 1px solid var(--border); border-radius: 3px; font-size: .78rem; padding: .1rem .2rem; }
+    #perfpanel input[type=checkbox] { accent-color: var(--accent); margin: 0; }
+    #perfpanel table { border-collapse: collapse; width: 100%; margin-top: .3rem; }
+    #perfpanel th { color: var(--dim); font-weight: normal; font-size: .68rem; text-align: center; padding: 0 .1rem; }
+    #perfpanel td { text-align: center; padding: .1rem .1rem; }
+    #perfpanel td.sl { color: var(--text); font-weight: bold; }
+    #perfpanel td .range { width: 2.6rem; }
+    #perfpanel .note { font-size: .65rem; color: var(--dim); display: block; }
+
     #patch { padding: 1rem; overflow-x: auto; }
     .area-title {
       font-size: .8rem; text-transform: uppercase; color: var(--dim); margin: 1rem 0 .5rem;
@@ -143,7 +162,11 @@
     <div id="variations"></div>
   </header>
   <main>
-    <nav id="banks"><h2>Patches</h2><div id="banklist">lade…</div></nav>
+    <nav id="banks">
+      <div id="perfpanel" hidden></div>
+      <h2>Patches</h2><div id="banklist">lade…</div>
+      <h2 style="margin-top:.8rem">Performances</h2><div id="perflist">lade…</div>
+    </nav>
     <section id="patch"></section>
     <aside id="params"><h2>Modul</h2><div id="paramsbody" class="hint">Modul anklicken</div></aside>
   </main>

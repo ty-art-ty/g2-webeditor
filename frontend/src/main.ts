@@ -1,6 +1,6 @@
 import type {
-  Area, Bank, Cable, ClientMessage, Module, ModuleDefs, PatchState, ServerMessage,
-  UndoInfo,
+  Area, Bank, Cable, ClientMessage, Module, ModuleDefs, PatchState,
+  PerfSettings, ServerMessage, UndoInfo,
 } from './protocol';
 import { type AreaView, MODULE_COLORS, moduleIcon, renderArea } from './graph';
 import { setTables } from './textfuncs';
@@ -15,6 +15,8 @@ const slotsEl = $('slots');
 const undoBtn = $('undobtn') as HTMLButtonElement;
 const redoBtn = $('redobtn') as HTMLButtonElement;
 const bankListEl = $('banklist');
+const perfListEl = $('perflist');
+const perfPanelEl = $('perfpanel');
 const paramsBodyEl = $('paramsbody');
 
 const VARIATION_COUNT = 8;
@@ -195,6 +197,11 @@ function handle(msg: ServerMessage) {
     case 'connection':
       setConn(msg.connected, msg.connected ? 'G2 verbunden' : 'G2 getrennt');
       break;
+    case 'perfSettingsChanged':
+      if (currentPatch) currentPatch.perfSettings = msg;
+      perfInfoEl.textContent = `${msg.name} · Slot ${currentPatch?.slot ?? ''}`;
+      renderPerfPanel(msg);
+      break;
     case 'visuals': {
       // LED-/VU-Daten (~30 Hz): in-place anwenden, KEIN Re-Render. Werte zudem
       // in m.visuals merken, damit Control-Layer-Rebuilds den Stand behalten.
@@ -298,6 +305,8 @@ function renderPatch(p: PatchState) {
   patchNameEl.textContent = p.name || '—';
   perfInfoEl.textContent = `${p.perf} · Slot ${p.slot}`;
   currentVariation = p.variation;
+  if (p.perfSettings) perfInfoEl.textContent = `${p.perfSettings.name} · Slot ${p.slot}`;
+  renderPerfPanel(p.perfSettings);
   renderSlots(p);
   renderVariations();
   if (p.undo) renderUndoState(p.undo);
@@ -684,6 +693,127 @@ function renderSlots(p: PatchState) {
   });
 }
 
+// ---------------------------------------------------------------- Performance
+
+const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+const noteName = (n: number) => `${NOTE_NAMES[n % 12]}${Math.floor(n / 12) - 1}`;
+
+/** Perf-Panel in der Sidebar: Name, Master-Clock, Slot-Flags/-Ranges. */
+function renderPerfPanel(ps: PerfSettings | undefined) {
+  if (!ps) { perfPanelEl.hidden = true; return; }
+  perfPanelEl.hidden = false;
+  perfPanelEl.innerHTML = '';
+
+  // Name (editierbar wie Modul-Rename: Enter/Blur sendet)
+  const name = document.createElement('input');
+  name.className = 'pname';
+  name.value = ps.name;
+  name.maxLength = 16;
+  name.title = 'Performance-Name (Enter speichert)';
+  const sendName = () => {
+    if (name.value !== ps.name && name.value.trim()) {
+      send({ type: 'renamePerf', name: name.value.trim() });
+    }
+  };
+  name.onkeydown = (ev) => { if (ev.key === 'Enter') (ev.target as HTMLInputElement).blur(); };
+  name.onblur = sendName;
+  perfPanelEl.appendChild(name);
+
+  // Master-Clock: BPM + Run + Keyboard-Split global
+  const clock = document.createElement('div');
+  clock.className = 'row';
+  const bpm = document.createElement('input');
+  bpm.type = 'number'; bpm.min = '30'; bpm.max = '240'; bpm.value = String(ps.clockBpm);
+  bpm.onchange = () => send({ type: 'setMasterClock', bpm: Number(bpm.value) });
+  const run = document.createElement('input');
+  run.type = 'checkbox'; run.checked = ps.clockRun; run.id = 'clockrun';
+  run.onchange = () => send({ type: 'setClockRun', run: run.checked });
+  const runLabel = document.createElement('label');
+  runLabel.htmlFor = 'clockrun'; runLabel.textContent = 'Run';
+  clock.append('Clock', bpm, 'BPM', run, runLabel);
+  perfPanelEl.appendChild(clock);
+
+  const split = document.createElement('div');
+  split.className = 'row';
+  const splitCb = document.createElement('input');
+  splitCb.type = 'checkbox'; splitCb.checked = ps.keyboardRangeEnabled; splitCb.id = 'kbsplit';
+  splitCb.onchange = () =>
+    send({ type: 'setKeyboardRangeEnabled', enabled: splitCb.checked });
+  const splitLabel = document.createElement('label');
+  splitLabel.htmlFor = 'kbsplit'; splitLabel.textContent = 'Keyboard-Split (Ranges)';
+  split.append(splitCb, splitLabel);
+  perfPanelEl.appendChild(split);
+
+  // Slot-Tabelle: Enable / Keyboard / Hold / Range from–to
+  const table = document.createElement('table');
+  table.innerHTML = '<tr><th></th><th title="Slot aktiv">On</th>'
+    + '<th title="Keyboard an diesen Slot (mehrere = Layer)">Kbd</th>'
+    + '<th title="Hold">Hold</th><th>von</th><th>bis</th></tr>';
+  ps.slots.forEach((s, ix) => {
+    const tr = document.createElement('tr');
+    const sl = document.createElement('td');
+    sl.className = 'sl'; sl.textContent = s.slot;
+    tr.appendChild(sl);
+    for (const key of ['enabled', 'keyboard', 'hold'] as const) {
+      const td = document.createElement('td');
+      const cb = document.createElement('input');
+      cb.type = 'checkbox'; cb.checked = s[key];
+      cb.onchange = () =>
+        send({ type: 'setPerfSlotSetting', slot: ix, key, value: cb.checked ? 1 : 0 });
+      td.appendChild(cb);
+      tr.appendChild(td);
+    }
+    for (const key of ['keyFrom', 'keyTo'] as const) {
+      const td = document.createElement('td');
+      const inp = document.createElement('input');
+      inp.type = 'number'; inp.min = '0'; inp.max = '127';
+      inp.className = 'range'; inp.value = String(s[key]);
+      inp.disabled = !ps.keyboardRangeEnabled;
+      inp.title = noteName(s[key]);
+      inp.onchange = () =>
+        send({ type: 'setPerfSlotSetting', slot: ix, key, value: Number(inp.value) });
+      const note = document.createElement('span');
+      note.className = 'note'; note.textContent = noteName(s[key]);
+      inp.oninput = () => { note.textContent = noteName(Number(inp.value) || 0); };
+      td.append(inp, note);
+      tr.appendChild(td);
+    }
+    table.appendChild(tr);
+  });
+  perfPanelEl.appendChild(table);
+}
+
+async function loadPerfBanks() {
+  try {
+    const banks: Bank[] = await (await fetch('/api/perfbanks')).json();
+    perfListEl.innerHTML = '';
+    if (!banks.length) { perfListEl.textContent = 'keine Perf-Banks'; return; }
+    banks.sort((a, b) => a.bank - b.bank).forEach((bank) => {
+      const det = document.createElement('details');
+      const sum = document.createElement('summary');
+      sum.textContent = `Bank ${bank.bank} (${bank.patches.length})`;
+      det.appendChild(sum);
+      const ul = document.createElement('ul');
+      bank.patches.sort((a, b) => a.slot - b.slot).forEach((p) => {
+        const li = document.createElement('li');
+        li.textContent = `${p.slot} ${p.name}`;
+        li.title = `Performance „${p.name}" laden (ersetzt alle 4 Slots!)`;
+        li.onclick = () => {
+          selected = null;
+          clipboard = null;
+          send({ type: 'loadPerf', bank: bank.bank, slot: p.slot });
+          // neuer patchState kommt via WS-Broadcast
+        };
+        ul.appendChild(li);
+      });
+      det.appendChild(ul);
+      perfListEl.appendChild(det);
+    });
+  } catch {
+    perfListEl.textContent = 'Perf-Banks nicht ladbar';
+  }
+}
+
 function renderVariations() {
   variationsEl.innerHTML = '';
   for (let v = 0; v < VARIATION_COUNT; v++) {
@@ -777,6 +907,7 @@ async function init() {
   }
   connect();
   loadBanks();
+  loadPerfBanks();
 }
 
 init();
