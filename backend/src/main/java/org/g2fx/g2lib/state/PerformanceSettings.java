@@ -73,6 +73,22 @@ public class PerformanceSettings {
         return slotSettings.get(slot.ordinal());
     }
 
+    /**
+     * Lokaler Patch (g2web): Werte aus frisch gelesenen Settings übernehmen,
+     * OHNE das Objekt zu ersetzen — Property-Listener bleiben erhalten und
+     * feuern für jede tatsächliche Änderung. Unknown-Felder der eigenen
+     * FieldValues bleiben unverändert (Properties decken sie nicht ab).
+     */
+    public void copyFrom(PerformanceSettings fresh) {
+        masterClock.set(fresh.masterClock().get());
+        masterClockRun.set(fresh.masterClockRun().get());
+        keyboardRangeEnabled.set(fresh.keyboardRangeEnabled().get());
+        selectedSlot.set(fresh.selectedSlot().get());
+        for (Slot s : Slot.values()) {
+            slotSettings.get(s.ordinal()).copyFrom(fresh.getSlotSettings(s));
+        }
+    }
+
     public FieldValues getFieldValues() {
         return fvs;
     }

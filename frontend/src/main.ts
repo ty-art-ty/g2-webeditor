@@ -753,6 +753,10 @@ function renderPerfPanel(ps: PerfSettings | undefined) {
     const tr = document.createElement('tr');
     const sl = document.createElement('td');
     sl.className = 'sl'; sl.textContent = s.slot;
+    if (currentPatch?.slot === s.slot) sl.style.color = 'var(--accent)';
+    sl.style.cursor = 'pointer';
+    sl.title = `Slot ${s.slot} anzeigen`;
+    sl.onclick = () => send({ type: 'selectSlot', slot: ix });
     tr.appendChild(sl);
     for (const key of ['enabled', 'keyboard', 'hold'] as const) {
       const td = document.createElement('td');

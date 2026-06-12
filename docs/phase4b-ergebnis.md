@@ -45,13 +45,27 @@ gespeicherte Performances); Browser-Check des neuen Panels steht aus
   Patch-Banks (Klick lädt mit Warnhinweis im Tooltip — ersetzt alle 4 Slots).
   `perfSettingsChanged` aktualisiert Panel + Header.
 
-## Stolperstein
+## Stolpersteine
 
 - Test-Skripte dürfen NICHT annehmen, dass die erste WS-Message der
   patchState ist — seit Teil 13 kann sich ein `visuals`-Broadcast
   dazwischenschieben (clients.add passiert vor dem initialen Send).
   ws-perf-test wartet jetzt explizit auf patchState; ältere Skripte bei
   Gelegenheit nachziehen.
+- **Regression nach Erstverifikation (vom Nutzer gefunden): Slot-Klick
+  wechselte die Ansicht nicht mehr.** Ursache: g2lib
+  `Performance.readPerformanceSettings` ERSETZT das PerformanceSettings-
+  Objekt bei jedem vom Gerät gesendeten Settings-Block (Echo nach
+  Settings-Write/Rename, Perf-Re-Reads) — damit sterben ALLE Property-
+  Listener, auch der selectedSlot-Listener mit dem patchState-Broadcast.
+  Slot-Wechsel kamen am Gerät an, das UI erfuhr nichts mehr. Fix (vendored
+  Patch): `copyFrom` auf PerformanceSettings/SlotSettings — Werte ins
+  bestehende Objekt übernehmen, Listener bleiben, Änderungen feuern normal.
+  Verifiziert: ws-perf-test → Slot-Wechsel → ws-slot-test, alles grün.
+  Lehre: dieselbe Objekt-Ersetzungs-Falle wie FieldValues-Referenzen —
+  bei g2lib-Reads immer prüfen, ob Objekte ersetzt statt aktualisiert werden.
+- Bonus-UX: Slot-Buchstaben im Perf-Panel sind jetzt klickbar (selectSlot),
+  aktiver Slot akzentuiert.
 
 ## Offen (→ Teil 15+)
 

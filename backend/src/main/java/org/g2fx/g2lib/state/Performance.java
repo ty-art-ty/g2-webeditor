@@ -95,8 +95,16 @@ public class Performance {
      * Read ahead perf settings.
      */
     private boolean readPerformanceSettings(ByteBuffer buf) {
-        perfSettings = new PerformanceSettings(
+        PerformanceSettings fresh = new PerformanceSettings(
                 readSectionSlice(buf,Sections.SPerformanceSettings_11));
+        if (perfSettings == null) {
+            perfSettings = fresh;
+        } else {
+            // Lokaler Patch (g2web): Werte ÜBERNEHMEN statt das Objekt zu ersetzen —
+            // sonst sterben alle Property-Listener (u.a. der Slot-Wechsel-Broadcast),
+            // sobald das Gerät Settings nachsendet (z.B. nach Settings-Write/Rename).
+            perfSettings.copyFrom(fresh);
+        }
         return true;
     }
 

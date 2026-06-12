@@ -51,4 +51,16 @@ public class SlotSettings {
     public LibProperty<Integer> keyboardRangeTo() {
         return keyboardRangeTo;
     }
+
+    /** Lokaler Patch (g2web): Werte übernehmen, Listener behalten (s. PerformanceSettings). */
+    public void copyFrom(SlotSettings fresh) {
+        enabled.set(fresh.enabled().get());
+        keyboard.set(fresh.keyboard().get());
+        patchName.set(fresh.patchName().get());
+        hold.set(fresh.hold().get());
+        bankIndex.set(fresh.bankIndex().get());
+        patchIndex.set(fresh.patchIndex().get());
+        keyboardRangeFrom.set(fresh.keyboardRangeFrom().get());
+        keyboardRangeTo.set(fresh.keyboardRangeTo().get());
+    }
 }
