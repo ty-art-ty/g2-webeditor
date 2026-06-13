@@ -222,6 +222,26 @@ public final class MockG2Service implements G2Service {
         emitPerfSettings();
     }
 
+    @Override public void storePerf(int bank, int entry) {
+        emit(Map.of("type", "banksChanged"));
+    }
+
+    /** Mock-Global-Knobs: nur In-Memory-Liste + Broadcast. */
+    private final List<Map<String, Object>> globalKnobs = new java.util.ArrayList<>();
+
+    @Override public void assignGlobalKnob(int knob, int slot, String area, int module, int param) {
+        globalKnobs.removeIf(k -> (int) k.get("knob") == knob);
+        globalKnobs.add(new java.util.LinkedHashMap<>(Map.of(
+                "knob", knob, "slot", String.valueOf((char) ('A' + slot)),
+                "area", area, "module", module, "param", param, "led", false)));
+        emit(Map.of("type", "globalKnobsChanged", "knobs", List.copyOf(globalKnobs)));
+    }
+
+    @Override public void deassignGlobalKnob(int knob) {
+        globalKnobs.removeIf(k -> (int) k.get("knob") == knob);
+        emit(Map.of("type", "globalKnobsChanged", "knobs", List.copyOf(globalKnobs)));
+    }
+
     @Override public void onEvent(Consumer<Map<String, Object>> l) { listeners.add(l); }
 
     private void emit(Map<String, Object> event) { listeners.forEach(l -> l.accept(event)); }

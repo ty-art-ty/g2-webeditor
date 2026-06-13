@@ -150,6 +150,24 @@ public interface G2Service {
     /** Performance umbenennen (max 16 ASCII-Zeichen). Broadcastet "perfSettingsChanged". */
     void renamePerf(String name);
 
+    /**
+     * Aktuelle Performance in einen Perf-Bank-Platz speichern (1-indexiert wie
+     * loadPerf; gespeichert wird unter dem aktuellen Perf-Namen). Das Gerät
+     * bestätigt mit einer aktualisierten Bank-Liste → Broadcast "banksChanged",
+     * Clients laden /api/perfbanks neu.
+     */
+    void storePerf(int bank, int entry);
+
+    /**
+     * Param einem Global Knob zuweisen (knob 0–119 = Seite 1–5 × Reihe A–C × 8;
+     * slot 0–3, area "va"|"fx"|"settings"). Ein belegter Knob wird überschrieben.
+     * Broadcastet "globalKnobsChanged" (nach Geräte-Echo der Zuweisungsliste).
+     */
+    void assignGlobalKnob(int knob, int slot, String area, int module, int param);
+
+    /** Global-Knob-Zuweisung lösen (knob 0–119). Broadcastet "globalKnobsChanged". */
+    void deassignGlobalKnob(int knob);
+
     /** Events vom G2 (Param-Änderungen am Gerät, Patch-Wechsel, Connect/Disconnect). */
     void onEvent(Consumer<Map<String, Object>> listener);
 }

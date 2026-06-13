@@ -82,8 +82,24 @@ export interface PatchState {
   settings?: SettingsModule[];
   /** Morph-Gruppen der aktiven Variation (Dial/Mode + Zuweisungen). */
   morphs?: MorphGroup[];
+  /** Zugewiesene Global Knobs (perf-weit, zeigen auf alle 4 Slots). */
+  globalKnobs?: GlobalKnob[];
   modules: Module[]; cables: Cable[];
 }
+/**
+ * Eine Global-Knob-Zuweisung. knob 0–119 = Seite 1–5 × Reihe A–C × Knob 1–8
+ * (Anzeige z.B. "2B5"). slot ist der Slot-BUCHSTABE (A–D); module/param wie
+ * patchState. moduleName/paramName löst der Server auf (Module fremder Slots
+ * hat der Client nicht im State).
+ */
+export interface GlobalKnob {
+  knob: number; slot: string; area: ParamArea; module: number; param: number;
+  led: boolean; moduleName?: string; paramName?: string;
+}
+/** Broadcast nach jeder Global-Knob-Änderung (gebündelt; volle Liste). */
+export interface GlobalKnobsChanged { type: 'globalKnobsChanged'; knobs: GlobalKnob[]; }
+/** Bank-Inhalte geändert (z.B. nach storePerf) — /api/banks + /api/perfbanks neu laden. */
+export interface BanksChanged { type: 'banksChanged'; }
 export interface SettingsParam extends Param { enums?: string[]; }
 export interface SettingsModule { id: number; name: string; params: SettingsParam[]; }
 export interface MorphAssign { area: ParamArea; module: number; param: number; range: number; }
@@ -141,7 +157,7 @@ export type ServerMessage =
   PatchState | ParamChanged | VariationChanged | Connection | ModuleMoved |
   CableAdded | CableDeleted | ModuleAdded | ModuleDeleted |
   ModuleRenamed | ModuleColorChanged | SelectionCopied | UndoState | ModeChanged |
-  MorphChanged | Visuals | PerfSettingsChanged;
+  MorphChanged | Visuals | PerfSettingsChanged | GlobalKnobsChanged | BanksChanged;
 
 export interface SetParam {
   type: 'setParam'; area: ParamArea; module: number; param: number; value: number; variation: number;
@@ -198,13 +214,24 @@ export interface SetPerfSlotSetting {
   type: 'setPerfSlotSetting'; slot: number; key: string; value: number;
 }
 export interface RenamePerf { type: 'renamePerf'; name: string; }
+/**
+ * Aktuelle Performance in Perf-Bank speichern (1-indexiert, unter aktuellem
+ * Namen; überschreibt belegte Plätze). Bestätigung = banksChanged.
+ */
+export interface StorePerf { type: 'storePerf'; bank: number; slot: number; }
+/** Param einem Global Knob zuweisen (knob 0–119, slot 0–3 = A–D). */
+export interface AssignGlobalKnob {
+  type: 'assignGlobalKnob'; knob: number; slot: number;
+  area: ParamArea; module: number; param: number;
+}
+export interface DeassignGlobalKnob { type: 'deassignGlobalKnob'; knob: number; }
 export type ClientMessage =
   SetParam | SetMode | SetMorph | SelectVariation | SelectSlot | MoveModule | AddCable | DeleteCable |
   AddModule | CopyModule | DeleteModule | RenameModule | SetModuleColor |
   MoveModules | DeleteModules | CopySelection |
   Undo | Redo |
   LoadPerf | SetMasterClock | SetClockRun | SetKeyboardRangeEnabled |
-  SetPerfSlotSetting | RenamePerf;
+  SetPerfSlotSetting | RenamePerf | StorePerf | AssignGlobalKnob | DeassignGlobalKnob;
 
 // REST: /api/banks
 export interface BankEntry { slot: number; name: string; category?: number; }

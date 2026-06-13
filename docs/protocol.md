@@ -64,6 +64,18 @@ TypeScript-Spiegel: `frontend/src/protocol.ts` — beide synchron halten.
   "slots": [ { "slot": "A", "enabled": true, "keyboard": true, "hold": false,
                "keyFrom": 0, "keyTo": 127 } /* …B,C,D */ ] }
 
+// Global-Knob-Zuweisungen geändert (gebündelt; volle Liste). Gleiche Struktur
+// steckt als "globalKnobs" im patchState. slot ist der Slot-BUCHSTABE;
+// moduleName/paramName löst der Server auf (Clients haben nur den aktiven
+// Slot im State). knob 0–119 = Seite 1–5 × Reihe A–C × Knob 1–8 ("2B5").
+{ "type": "globalKnobsChanged", "knobs": [ { "knob": 0, "slot": "A",
+  "area": "va", "module": 1, "param": 0, "led": false,
+  "moduleName": "Osc1", "paramName": "FreqCoarse" } ] }
+
+// Bank-Inhalte geändert (z.B. nach storePerf): /api/banks + /api/perfbanks
+// neu laden. Kommt auch einmal beim Connect (initialer Bank-Snapshot).
+{ "type": "banksChanged" }
+
 // LED-/VU-Daten (G2 streamt 0x39/0x3a; Server bündelt und flusht ~alle 33 ms,
 // nur GEÄNDERTE Werte — letzter Wert pro Visual gewinnt). Einträge sind
 // [area, module, g, value]; g = GroupId der Led/MiniVU-Controls in
@@ -107,6 +119,16 @@ daher in alle modulbezogenen Messages. Fehlt es bei `setParam`, nimmt der Server
 { "type": "setPerfSlotSetting", "slot": 1, "key": "enabled", "value": 1 }
    // key: enabled|keyboard|hold (0/1) | keyFrom|keyTo (MIDI-Note 0–127)
 { "type": "renamePerf", "name": "MyPerf" }
+
+// Teil 15: Perf-Store + Global Knobs. storePerf speichert die aktuelle
+// Performance (unter ihrem Namen) in einen Perf-Bank-Platz — 1-indexiert,
+// überschreibt belegte Plätze; Bestätigung = banksChanged. Global Knobs:
+// knob 0–119 (= Seite 1–5 × Reihe A–C × Knob 1–8), slot 0–3; Zuweisung
+// überschreibt belegte Knobs; Bestätigung = globalKnobsChanged.
+{ "type": "storePerf", "bank": 1, "slot": 2 }
+{ "type": "assignGlobalKnob", "knob": 0, "slot": 0, "area": "va",
+  "module": 1, "param": 0 }
+{ "type": "deassignGlobalKnob", "knob": 0 }
 ```
 
 **Performance-Mode** (v1, Teil 14): Wire-Formate (BVerhue `BVE.NMG2Mess.pas`):
@@ -117,6 +139,25 @@ Section 0x11 `[01,2c,ver, 11, len, payload]` (g2lib `Sections.writeSection`
 Perf-Load über `loadEntry` mit slotCode 4 (`S_PERF_04`) — Antwort ist
 LOAD_PERF, der Server baut die Performance neu auf und broadcastet patchState.
 REST: `GET /api/perfbanks` (Format wie /api/banks), `POST /api/perf/load`.
+
+**storePerf / Global Knobs** (v1, Teil 15): Store als System-Request
+`O_STORE_ENTRY` 0x0b `[01,2c,41, 0b, slotCode, bank, entry]` — Gegenstück zu
+loadEntry (slotCode 4 = Performance); das Gerät bestätigt mit einer
+Entry-List-Message (Store-Response-Flag in g2lib `dispatchEntryList`), die den
+Bank-Snapshot aktualisiert → `banksChanged`. REST: `POST /api/perf/store`.
+Global Knobs (verifiziert gegen BVerhue „G2 USB Messages“-Referenz, Stand
+8-11-2011): Zuweisen `S_ASS_GLOBAL_KNOB` 0x1c als Slot-Request des ZIEL-Slots
+`[01, 28+slot, slotVersion, 1c, loc, module, param, 00, knob]` (Beispiel
+`00 0f 01 28 00 1c 00 01 07 00 07 1e 00 00 94`); `loc` trägt die 2-Bit-Location
+FX=0/VA=1 in Bit 2-3 (= `ordinal<<2`), zwischen `param` und `knob` steht ein
+vom Gerät ignoriertes 0x00-Byte. Lösen `S_DEASS_GLOB_KNOB` 0x1d
+`[…, 1d, 00, knob]` (Beispiel `00 0a 01 28 00 1d 00 07 3e ec`) — ebenfalls mit
+0x00-Byte vor `knob`. BVerhue hängt optional noch `1e <page>` (Select Global
+Page, reine UI-Anzeige) an; das senden wir nicht. Nach jedem Schreiben fordert
+der Server die Liste neu an (`O_GLOBAL_KNOBS` 0x5e, Antwort Section 0x5f, Code
+`I_GLOBAL_KNOB_ASSIGMENTS`) — die 120 LibProperty-Listener bündeln das Echo zu
+EINEM `globalKnobsChanged`. (Das 0x1c/0x1d-Geräte-Echo ist nur ein `ok`, daher
+das explizite Neuanfordern.)
 
 **undo/redo** (v1): Serverseitiger Verlauf (max 100 Einträge, ein Stack für alle
 Clients) über alle Mutationen: moveModule (inkl. Kollisions-Pushes), addModule,

@@ -239,4 +239,22 @@ public class Entries implements LibProperty.LibPropertyListener<Entries.EntriesE
         );
 
     }
+
+    /**
+     * Lokaler Patch (g2web): Slot-/Perf-Inhalt in einen Bank-Platz speichern —
+     * Gegenstück zu {@link #loadEntry} (BVerhue SendStoreMessage/CreateStoreMessage:
+     * gleiche Argumentfolge slot, bank, entry; slotCode 4 = Performance).
+     * Das Gerät antwortet mit einer Entry-List-Message (isStoreResponse in
+     * {@link #dispatchEntryList}), die den Bank-Snapshot aktualisiert und
+     * refreshAll feuert.
+     */
+    public void storeEntry(int slotCode, int bank, int entry) throws Exception {
+        log.info(String.format("storeEntry: slot=%s, bank=%s, entry=%s",slotCode,bank,entry));
+        usb.sendSystemRequest("storeEntry",
+                Codes.O_STORE_ENTRY,
+                slotCode,
+                bank,
+                entry
+        );
+    }
 }

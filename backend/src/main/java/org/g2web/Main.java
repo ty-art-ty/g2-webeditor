@@ -50,6 +50,11 @@ public final class Main {
             g2.loadPatch(req.get("bank").asInt(), req.get("slot").asInt());
             ctx.status(202);
         });
+        app.post("/api/perf/store", ctx -> {
+            JsonNode req = JSON.readTree(ctx.body());
+            g2.storePerf(req.get("bank").asInt(), req.get("slot").asInt());
+            ctx.status(202); // Bestätigung kommt als banksChanged via WS
+        });
 
         // --- WebSocket: Echtzeit-Param-Sync ---
         app.ws("/ws", ws -> {
@@ -150,6 +155,16 @@ public final class Main {
                             msg.get("key").asText(),
                             msg.get("value").asInt());
                     case "renamePerf" -> g2.renamePerf(msg.get("name").asText());
+                    case "storePerf" -> g2.storePerf(
+                            msg.get("bank").asInt(), msg.get("slot").asInt());
+                    case "assignGlobalKnob" -> g2.assignGlobalKnob(
+                            msg.get("knob").asInt(),
+                            msg.get("slot").asInt(),
+                            msg.has("area") ? msg.get("area").asText() : "va",
+                            msg.get("module").asInt(),
+                            msg.get("param").asInt());
+                    case "deassignGlobalKnob" -> g2.deassignGlobalKnob(
+                            msg.get("knob").asInt());
                     default -> { /* unbekannte Message ignorieren, siehe docs/protocol.md */ }
                 }
             });

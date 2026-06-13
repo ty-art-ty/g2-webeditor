@@ -1,3 +1,89 @@
+# Phase 4b — Ergebnis Teil 15: Global Knobs + Perf-Store (2026-06-13)
+
+**Status: ✅ Global Knobs (assign/deassign) + Perf-Store + loadPerf am echten
+G2 verifiziert.** Deploy + `ws-perf15-test.py` liefen über den
+Mac/Desktop-Commander-Pfad (Pi aus der Sandbox nicht erreichbar, s. Memory
+`g2-pi-zugriff`).
+
+## Verifiziert am echten G2 (ws-perf15-test.py, Patch im Slot, leere Perf-Bänke)
+
+- `assignGlobalKnob 1A1 → Clock·Rate` (Modul-/Param-Name serverseitig
+  aufgelöst), Broadcast `globalKnobsChanged` mit der Zuweisung; `deassignGlobalKnob`
+  räumt sie wieder ab — beide Wire-Formate (0x1c/0x1d inkl. der 0x00-Bytes und
+  `location<<2`) vom Gerät akzeptiert.
+- `storePerf → Bank 1 Platz 1 ('New Performance')`: Store-Response aktualisiert
+  den Bank-Snapshot, Eintrag taucht in `/api/perfbanks` auf (`banksChanged`).
+- `loadPerf 1/1 → patchState mit Perf 'New Performance'` — damit ist der seit
+  Teil 14 offene loadPerf-Punkt erledigt (vorher hatte das Gerät 0 gespeicherte
+  Performances; nach storePerf jetzt testbar). **PASS.**
+- Hinweis: Der Test hinterlässt einen Eintrag „New Performance" in Perf-Bank 1
+  Platz 1 (kein Lösch-Kommando implementiert) — bei Bedarf am G2-Panel löschen.
+- Backend-Compile gegen Java 25 auf dem Pi: `BUILD SUCCESSFUL` (compileJava grün);
+  Service nach Deploy `active`, HTTP 200.
+
+## Vorab statisch verifiziert (vor dem Deploy, ohne Hardware)
+
+- **Wire-Format der Global-Knob-Messages gegen die maßgebliche BVerhue-Referenz
+  „G2 USB Messages" (Stand 8-11-2011) geprüft — und ZWEI Fehler im zuvor
+  geratenen Code gefunden und korrigiert:**
+  1. Assign 0x1c: zwischen `param` und `knob` fehlte ein (vom Gerät
+     ignoriertes) `00`-Byte. Korrekt: `[…, 1c, loc, module, param, 00, knob]`,
+     Beispiel `00 0f 01 28 00 1c 00 01 07 00 07 1e 00 00 94`.
+  2. Assign 0x1c: `loc` muss die 2-Bit-Location in Bit 2-3 tragen
+     (`ordinal<<2`), nicht ungeschoben. Bestätigt über das 0x25-Beispiel der
+     Referenz (locByte `0x40` = L=1 bei MSB-first-Bit-Tabelle).
+  3. Deassign 0x1d: auch hier fehlte das `00`-Byte vor `knob`. Korrekt:
+     `[…, 1d, 00, knob]`, Beispiel `00 0a 01 28 00 1d 00 07 3e ec`.
+  Der optionale `1e <page>`-Anhang (Select Global Page, reine UI-Anzeige)
+  wird bewusst weggelassen.
+- Alle referenzierten g2lib-Symbole existieren: `Codes.O_STORE_ENTRY` (0x0b),
+  `O_GLOBAL_KNOBS` (0x5e), `I_GLOBAL_KNOB_ASSIGMENTS` (0x5f),
+  `Performance.getGlobalKnobAssignments().assignments()` (120 LibPropertys),
+  `KnobAssignment`/`Location`, `GlobalKnobAssignments.update()`,
+  `SettingsModules.IX_LOOKUP`. Lese-Pfad ist verdrahtet:
+  `Device` Code 0x5f → `readGlobalKnobAssignments` → `update()` → Listener.
+- storePerf ist ein exakter Spiegel des bereits funktionierenden `loadEntry`
+  (gleiche Argfolge slot/bank/entry, nur Opcode 0x0b statt 0x0a); die
+  Store-Response wird in `dispatchEntryList` (isStoreResponse → `fireRefreshAll`)
+  zum `banksChanged`-Broadcast → kein geratenes Wire-Format wie bei den Knobs.
+- Frontend-Typecheck `tsc --noEmit` grün (protocol.ts + main.ts).
+- Backend-Compile NICHT möglich (Sandbox hat nur Java 11, JDK-25-Download
+  blockiert) — Compile-Check passiert wie üblich beim Deploy auf dem Pi.
+
+## Umsetzung
+
+- **Backend**: `G2Service` um `storePerf`/`assignGlobalKnob`/`deassignGlobalKnob`
+  erweitert (Mock = In-Memory-Liste). `G2LibService`: Global-Knob-Liste
+  serverseitig mit aufgelösten Modul-/Param-Namen (`globalKnobsOf`, auch im
+  patchState), nach jeder Zuweisung explizites `O_GLOBAL_KNOBS`-Re-Request;
+  die 120 LibProperty-Listener bündeln das 0x5f-Echo per Scheduler (30 ms) zu
+  EINEM `globalKnobsChanged`. `Entries.storeEntry` (0x0b). Bank-Snapshot-Listener
+  broadcastet jetzt `banksChanged` (auch initial beim Connect).
+- **Frontend**: Param-Panel-Zeile „G-Knob" (Select – / 1A1…5C8, belegte Knobs
+  markiert), Perf-Panel mit Global-Knob-Liste (Lösen-Button) + „Speichern"
+  (Bank/Platz, unter aktuellem Perf-Namen, Überschreib-Confirm). Neue Messages
+  in `protocol.ts` gespiegelt.
+- **Doku**: `docs/protocol.md` um storePerf + Global-Knob-Wire-Formate ergänzt
+  (verifizierte Byte-Layouts, TODO aufgelöst).
+
+## Stolpersteine
+
+- Das geratene Global-Knob-Wire-Format war an zwei Stellen falsch (s.o.) — die
+  Lehre aus Teil 14 (vor Deploy gegen Referenz verifizieren) hat sich direkt
+  ausgezahlt; ohne die `00`-Bytes wäre `knob` fehlausgerichtet gewesen.
+- Das 0x1c/0x1d-Geräte-Echo ist nur ein `ok` (kein neuer Zuweisungs-Stand) →
+  ohne das explizite `O_GLOBAL_KNOBS`-Re-Request bliebe das UI stumm.
+
+## Offen (→ Teil 16+)
+
+1. Browser-Check von Param-Panel („G-Knob"-Select) und Perf-Panel
+   (Global-Knob-Liste + „Speichern") gegen die Hardware — Backend ist verifiziert,
+   die UI-Verdrahtung noch per Hand durchzuklicken.
+2. Patch-Persistenz (.pch2/.prf2-Export), restliche GraphFuncs,
+   Morph-Mode-Toggle/-Labels.
+
+---
+
 # Phase 4b — Ergebnis Teil 14: Performance-Mode (2026-06-12)
 
 **Status: ✅ Perf-Settings (Master-Clock, Slot-Enable/Keyboard/Hold,

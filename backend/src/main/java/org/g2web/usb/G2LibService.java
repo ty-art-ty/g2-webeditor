@@ -57,6 +57,9 @@ public final class G2LibService implements G2Service {
     private static final int S_DEL_MODULE = 0x32;
     private static final int S_SET_MODULE_COLOR = 0x31;
     private static final int S_SET_MODULE_LABEL = 0x33;
+    /** Global-Knob-Zuweisung (BVerhue g2_types.pas) — fehlen in g2lib {@code Codes}. */
+    private static final int S_ASS_GLOBAL_KNOB = 0x1c;
+    private static final int S_DEASS_GLOB_KNOB = 0x1d;
 
     private final Devices devices;
     private final List<Consumer<Map<String, Object>>> listeners = new CopyOnWriteArrayList<>();
@@ -126,6 +129,11 @@ public final class G2LibService implements G2Service {
 
     private volatile boolean connected;
     private volatile int variation = 0;
+    /** Geteilter Scheduler (Visuals-Flush + Global-Knob-Bündelung). */
+    private java.util.concurrent.ScheduledExecutorService scheduler;
+    /** Bündelt Global-Knob-Listener-Feuer (eine 0x5f-Antwort ändert oft mehrere). */
+    private final java.util.concurrent.atomic.AtomicBoolean globalKnobsPending =
+            new java.util.concurrent.atomic.AtomicBoolean();
     /** Letzter Bank-Snapshot vom Gerät: type -> bank -> entry -> Entry. */
     private volatile Map<Entries.EntryType, Map<Integer, Map<Integer, Entries.Entry>>> banks = Map.of();
 
@@ -142,7 +150,12 @@ public final class G2LibService implements G2Service {
                 connected = d.online();
                 // Bank-Snapshot abholen (Entries wurden in Device.initialize() gelesen)
                 d.getEntries().getEventProp().addListener((o, n) -> {
-                    if (n.entries() != null) banks = n.entries();
+                    if (n.entries() != null) {
+                        banks = n.entries();
+                        // z.B. nach storePerf (das Gerät schickt die aktualisierte
+                        // Liste als Store-Response) — Clients laden /api/*banks neu
+                        emit(Map.of("type", "banksChanged"));
+                    }
                 });
                 d.getEntries().fireRefreshAll();
                 initialized.countDown();
@@ -183,12 +196,14 @@ public final class G2LibService implements G2Service {
 
         usbService.start();
 
-        // Flush-Ticker für LED/VU-Broadcasts (Daemon; emit ist threadsicher)
-        java.util.concurrent.Executors.newSingleThreadScheduledExecutor(r -> {
+        // Flush-Ticker für LED/VU-Broadcasts (Daemon; emit ist threadsicher).
+        // Derselbe Scheduler bündelt auch Global-Knob-Broadcasts (s. attachListeners).
+        scheduler = java.util.concurrent.Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "g2web-visuals-flush");
             t.setDaemon(true);
             return t;
-        }).scheduleAtFixedRate(this::flushVisuals, VISUALS_FLUSH_MS, VISUALS_FLUSH_MS,
+        });
+        scheduler.scheduleAtFixedRate(this::flushVisuals, VISUALS_FLUSH_MS, VISUALS_FLUSH_MS,
                 TimeUnit.MILLISECONDS);
 
         // Ohne sauberes Release bleibt der G2 in einem Zustand, in dem der nächste
@@ -362,6 +377,61 @@ public final class G2LibService implements G2Service {
 
     private static org.g2fx.g2lib.usb.UsbSender perfSender(Performance p) {
         return p.getSelectedPatch().getSlotSender().getSender();
+    }
+
+    @Override
+    public void storePerf(int bank, int entry) {
+        // Gegenstück zu loadPerf: gleiche Argumentfolge, Kommando 0x0b statt 0x0a
+        // (BVerhue SendStoreMessage(aSlot,aBank,aPatch)). Gespeichert wird unter dem
+        // aktuellen Perf-Namen. Das Gerät bestätigt mit einer Entry-List-Message
+        // (isStoreResponse) → Entries-Listener aktualisiert banks + broadcastet
+        // "banksChanged".
+        if (bank < 1 || entry < 1) throw new IllegalArgumentException(
+                "bank/entry 1-indexiert: " + bank + "/" + entry);
+        devices.runWithCurrent(d -> d.getEntries().storeEntry(
+                org.g2fx.g2lib.protocol.Codes.S_PERF_04, bank - 1, entry - 1));
+    }
+
+    @Override
+    public void assignGlobalKnob(int knob, int slot, String area, int module, int param) {
+        if (knob < 0 || knob > 119) throw new IllegalArgumentException("Knob 0–119: " + knob);
+        if (slot < 0 || slot > 3) throw new IllegalArgumentException("Slot 0–3: " + slot);
+        devices.runWithCurrentPerf(p -> {
+            AreaId areaId = areaOf(area);
+            Patch patch = p.getSlot(Slot.fromIndex(slot));
+            if (areaId != AreaId.Settings) {
+                patch.getArea(areaId).getModule(module); // wirft bei unbekanntem Index
+            }
+            // Wire (verifiziert gegen BVerhue „G2 USB Messages“-Referenz, Stand
+            // 8-11-2011; Beispiel 00 0f 01 28 00 1c 00 01 07 00 07 1e 00 00 94):
+            // Slot-Request des Ziel-Slots,
+            // [01, 28+slot, slotVersion, 1c, loc, module, param, 00, knob].
+            // loc trägt die 2-Bit-Location (FX=0/VA=1) in Bit 2-3 → ordinal<<2;
+            // zwischen param und knob steht ein (vom Gerät ignoriertes) 0x00-Byte
+            // (das BVerhue-Beispiel zeigt beide — der frühere Code ließ sie weg).
+            patch.getSlotSender().sendSlotRequest("assign-global-knob",
+                    S_ASS_GLOBAL_KNOB, areaId.ordinal() << 2, module, param, 0x00, knob);
+            requestGlobalKnobs(p); // Echo 0x5f aktualisiert den State → Broadcast
+        });
+    }
+
+    @Override
+    public void deassignGlobalKnob(int knob) {
+        if (knob < 0 || knob > 119) throw new IllegalArgumentException("Knob 0–119: " + knob);
+        devices.runWithCurrentPerf(p -> {
+            // Wire (verifiziert gegen BVerhue „G2 USB Messages“, Stand 8-11-2011;
+            // Beispiel 00 0a 01 28 00 1d 00 07 3e ec): […, 1d, 00, knob] — auch
+            // hier steht ein 0x00-Byte vor knob (der frühere Code ließ es weg).
+            p.getSelectedPatch().getSlotSender().sendSlotRequest("deassign-global-knob",
+                    S_DEASS_GLOB_KNOB, 0x00, knob);
+            requestGlobalKnobs(p);
+        });
+    }
+
+    /** Global-Knob-Liste neu vom Gerät anfordern (Antwort 0x5f → Listener-Broadcast). */
+    private void requestGlobalKnobs(Performance p) throws Exception {
+        perfSender(p).sendPerfRequest(p.getVersion(), "global knobs",
+                org.g2fx.g2lib.protocol.Codes.O_GLOBAL_KNOBS);
     }
 
     @Override
@@ -1309,6 +1379,63 @@ public final class G2LibService implements G2Service {
         emit(msg);
     }
 
+    /**
+     * Zugewiesene Global Knobs (0–119 = Seite 1–5 × Reihe A–C × Knob 1–8) mit
+     * serverseitig aufgelösten Modul-/Param-Namen — die Zuweisungen zeigen auf
+     * alle 4 Slots, Clients haben aber nur den aktiven Slot im State.
+     */
+    private List<Map<String, Object>> globalKnobsOf(Performance perf) {
+        List<Map<String, Object>> out = new ArrayList<>();
+        List<org.g2fx.g2lib.model.LibProperty<org.g2fx.g2lib.state.KnobAssignment>> as =
+                perf.getGlobalKnobAssignments().assignments();
+        for (int i = 0; i < as.size(); i++) {
+            org.g2fx.g2lib.state.KnobAssignment k = as.get(i).get();
+            if (k == null || !k.assigned()) continue;
+            Map<String, Object> km = new LinkedHashMap<>();
+            km.put("knob", i);
+            km.put("slot", k.loc().slot().name());
+            km.put("area", areaName(k.loc().area().ordinal()));
+            km.put("module", k.loc().module());
+            km.put("param", k.loc().param());
+            km.put("led", Boolean.TRUE.equals(k.led()));
+            try { // Namen sind Anzeige-Komfort — Fehler (z.B. Index-Lücken) nicht fatal
+                if (k.loc().area() == AreaId.Settings) {
+                    var sm = org.g2fx.g2lib.model.SettingsModules.IX_LOOKUP
+                            .get(k.loc().module());
+                    km.put("moduleName", sm.name());
+                    km.put("paramName", sm.getModParams().get(k.loc().param()).name());
+                } else {
+                    PatchModule m = perf.getSlot(k.loc().slot())
+                            .getArea(k.loc().area()).getModule(k.loc().module());
+                    String n = m.name().get();
+                    km.put("moduleName", n == null || n.isEmpty()
+                            ? m.getUserModuleData().getType().shortName : n);
+                    km.put("paramName", m.getUserModuleData().getType()
+                            .getParams().get(k.loc().param()).name());
+                }
+            } catch (RuntimeException e) {
+                log.fine("Global-Knob-Namensauflösung fehlgeschlagen: " + e);
+            }
+            out.add(km);
+        }
+        return out;
+    }
+
+    /** Gebündelter Broadcast: eine 0x5f-Antwort feuert bis zu 120 Listener. */
+    private void scheduleGlobalKnobsEmit(Performance perf) {
+        if (globalKnobsPending.compareAndSet(false, true)) {
+            scheduler.schedule(() -> {
+                globalKnobsPending.set(false);
+                try {
+                    emit(Map.of("type", "globalKnobsChanged",
+                            "knobs", globalKnobsOf(perf)));
+                } catch (RuntimeException e) {
+                    log.log(Level.WARNING, "globalKnobsChanged fehlgeschlagen", e);
+                }
+            }, 30, TimeUnit.MILLISECONDS);
+        }
+    }
+
     /** Patch-State des gewählten Slots. Nur auf dem g2lib-Thread bzw. via invoke aufrufen. */
     private Map<String, Object> patchStateOf(Performance perf) {
         Patch patch = perf.getSelectedPatch();
@@ -1355,6 +1482,7 @@ public final class G2LibService implements G2Service {
         out.put("cables", cables);
         out.put("settings", settingsOf(patch));
         out.put("morphs", morphsOf(patch));
+        out.put("globalKnobs", globalKnobsOf(perf));
         return out;
     }
 
@@ -1534,6 +1662,11 @@ public final class G2LibService implements G2Service {
         }
         for (Patch p : perf.slots()) {
             attachPatchListeners(p);
+        }
+        // Global Knobs: das Geräte-Echo (0x5f nach assign/deassign/loadPerf) setzt
+        // die 120 LibPropertys — gebündelt als EIN globalKnobsChanged broadcasten
+        for (var prop : perf.getGlobalKnobAssignments().assignments()) {
+            prop.addListener((o, n) -> scheduleGlobalKnobsEmit(perf));
         }
     }
 

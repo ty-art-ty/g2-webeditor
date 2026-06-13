@@ -1,5 +1,5 @@
 import type {
-  Area, Bank, Cable, ClientMessage, Module, ModuleDefs, PatchState,
+  Area, Bank, Cable, ClientMessage, GlobalKnob, Module, ModuleDefs, PatchState,
   PerfSettings, ServerMessage, UndoInfo,
 } from './protocol';
 import { type AreaView, MODULE_COLORS, moduleIcon, renderArea } from './graph';
@@ -201,6 +201,16 @@ function handle(msg: ServerMessage) {
       if (currentPatch) currentPatch.perfSettings = msg;
       perfInfoEl.textContent = `${msg.name} · Slot ${currentPatch?.slot ?? ''}`;
       renderPerfPanel(msg);
+      break;
+    case 'globalKnobsChanged':
+      if (currentPatch) currentPatch.globalKnobs = msg.knobs;
+      renderPerfPanel(currentPatch?.perfSettings); // Knob-Liste hängt am Perf-Panel
+      applySelection(); // Param-Panel zeigt ggf. die Zuweisungs-Selects
+      break;
+    case 'banksChanged':
+      // z.B. nach storePerf — Listen neu laden (Server hält den Bank-Snapshot)
+      loadBanks();
+      loadPerfBanks();
       break;
     case 'visuals': {
       // LED-/VU-Daten (~30 Hz): in-place anwenden, KEIN Re-Render. Werte zudem
@@ -474,8 +484,61 @@ function renderParamPanel(m: Module) {
     };
     div.appendChild(row);
     div.appendChild(morphRow(m, param.id));
+    div.appendChild(globalKnobRow(m, param.id));
   }
   paramsBodyEl.appendChild(div);
+}
+
+// Global Knobs: 120 Stück = Seite 1–5 × Reihe A–C × Knob 1–8, Anzeige "2B5"
+const knobName = (k: number) =>
+  `${Math.floor(k / 24) + 1}${'ABC'[Math.floor((k % 24) / 8)]}${(k % 8) + 1}`;
+
+/**
+ * Global-Knob-Zuweisung eines Params (Select – / 1A1…5C8). Zuweisungen sind
+ * perf-weit; hier wird immer der AKTIVE Slot zugewiesen. Belegte Knobs sind
+ * markiert und werden beim Zuweisen überschrieben.
+ */
+function globalKnobRow(m: Module, paramId: number): HTMLElement {
+  const row = document.createElement('div');
+  row.className = 'morphrow';
+  const knobs = currentPatch?.globalKnobs ?? [];
+  const slot = currentPatch?.slot ?? 'A';
+  const cur = knobs.find((k) => k.slot === slot && k.area === m.area
+    && k.module === m.id && k.param === paramId);
+  const sel = document.createElement('select');
+  let html = '<option value="-1">–</option>';
+  for (let page = 0; page < 5; page++) {
+    for (let rowIx = 0; rowIx < 3; rowIx++) {
+      html += `<optgroup label="Seite ${page + 1}${'ABC'[rowIx]}">`;
+      for (let k = 0; k < 8; k++) {
+        const ix = page * 24 + rowIx * 8 + k;
+        const used = knobs.find((g) => g.knob === ix);
+        const label = knobName(ix) + (used && used !== cur
+          ? ` · ${used.moduleName ?? used.module}` : '');
+        html += `<option value="${ix}">${esc(label)}</option>`;
+      }
+      html += '</optgroup>';
+    }
+  }
+  sel.innerHTML = html;
+  sel.value = String(cur?.knob ?? -1);
+  sel.title = 'Global Knob (perf-weit; belegte Knobs werden überschrieben)';
+  sel.onchange = () => {
+    const knob = Number(sel.value);
+    if (knob < 0) {
+      if (cur) send({ type: 'deassignGlobalKnob', knob: cur.knob });
+      return;
+    }
+    // Umzug auf anderen Knob: alte Zuweisung dieses Params zuerst lösen
+    if (cur && cur.knob !== knob) send({ type: 'deassignGlobalKnob', knob: cur.knob });
+    send({ type: 'assignGlobalKnob', knob, slot: 'ABCD'.indexOf(slot),
+           area: m.area, module: m.id, param: paramId });
+    // Bestätigung kommt als globalKnobsChanged (nach Geräte-Echo)
+  };
+  const lbl = document.createElement('span');
+  lbl.textContent = 'G-Knob';
+  row.append(lbl, sel);
+  return row;
 }
 
 /**
@@ -785,6 +848,58 @@ function renderPerfPanel(ps: PerfSettings | undefined) {
     table.appendChild(tr);
   });
   perfPanelEl.appendChild(table);
+
+  // Global Knobs (perf-weit): zugewiesene Knobs mit Lösen-Button
+  const knobs = currentPatch?.globalKnobs ?? [];
+  const gk = document.createElement('details');
+  gk.className = 'gknobs';
+  const gks = document.createElement('summary');
+  gks.textContent = `Global Knobs (${knobs.length})`;
+  gk.appendChild(gks);
+  if (!knobs.length) {
+    const hint = document.createElement('div');
+    hint.className = 'hint';
+    hint.textContent = 'keine Zuweisungen — im Param-Panel unter „G-Knob" zuweisen';
+    gk.appendChild(hint);
+  } else {
+    const ul = document.createElement('ul');
+    [...knobs].sort((a, b) => a.knob - b.knob).forEach((k) => {
+      const li = document.createElement('li');
+      const name = `${k.moduleName ?? `#${k.module}`} · ${k.paramName ?? `P${k.param}`}`;
+      li.textContent = `${knobName(k.knob)}  ${k.slot}/${k.area} ${name}`;
+      const del = document.createElement('button');
+      del.textContent = '✕';
+      del.title = `Global Knob ${knobName(k.knob)} lösen`;
+      del.onclick = () => send({ type: 'deassignGlobalKnob', knob: k.knob });
+      li.appendChild(del);
+      ul.appendChild(li);
+    });
+    gk.appendChild(ul);
+  }
+  perfPanelEl.appendChild(gk);
+
+  // Performance in Perf-Bank speichern (unter aktuellem Namen)
+  const store = document.createElement('div');
+  store.className = 'row';
+  const sBank = document.createElement('input');
+  sBank.type = 'number'; sBank.min = '1'; sBank.max = '8'; sBank.value = '1';
+  sBank.title = 'Perf-Bank (1–8)';
+  const sSlot = document.createElement('input');
+  sSlot.type = 'number'; sSlot.min = '1'; sSlot.max = '32'; sSlot.value = '1';
+  sSlot.title = 'Platz in der Bank (1–32)';
+  const sBtn = document.createElement('button');
+  sBtn.textContent = 'Speichern';
+  sBtn.title = 'Performance in den Bank-Platz speichern (unter aktuellem Namen)';
+  sBtn.onclick = () => {
+    const bank = Number(sBank.value), slot = Number(sSlot.value);
+    if (!bank || !slot) return;
+    if (!confirm(`Performance „${ps.name}" in Bank ${bank}, Platz ${slot} speichern?`
+        + ' Ein vorhandener Eintrag wird überschrieben.')) return;
+    send({ type: 'storePerf', bank, slot });
+    // Bestätigung kommt als banksChanged → Perf-Liste lädt neu
+  };
+  store.append('Bank', sBank, 'Platz', sSlot, sBtn);
+  perfPanelEl.appendChild(store);
 }
 
 async function loadPerfBanks() {
