@@ -35,9 +35,9 @@ let ws: WebSocket;
 
 function connect() {
   ws = new WebSocket(`ws://${location.host}/ws`);
-  ws.onopen = () => setConn(true, 'verbunden');
+  ws.onopen = () => setConn(true, 'connected');
   ws.onclose = () => {
-    setConn(false, 'getrennt — reconnect…');
+    setConn(false, 'disconnected — reconnecting…');
     setTimeout(connect, 2000);
   };
   ws.onmessage = (ev) => handle(JSON.parse(ev.data) as ServerMessage);
