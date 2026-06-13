@@ -20,6 +20,11 @@ Mac/Desktop-Commander-Pfad (Pi aus der Sandbox nicht erreichbar, s. Memory
   Platz 1 (kein Lösch-Kommando implementiert) — bei Bedarf am G2-Panel löschen.
 - Backend-Compile gegen Java 25 auf dem Pi: `BUILD SUCCESSFUL` (compileJava grün);
   Service nach Deploy `active`, HTTP 200.
+- **Browser-Check (headless Chrome + CDP gegen den Pi, Patch „HipHop beat box"):**
+  neues Bundle geladen, `conn=verbunden`, Perf-Panel zeigt „Global Knobs (0)" +
+  „Speichern"/Bank/Platz; nach Modul-Auswahl (ClkGen #1) erscheint die
+  „G-Knob"-Zeile mit Optionen –/1A1/1A2/… Keine JS-Exceptions (einzig ein
+  unkritischer favicon.ico-404, kein Teil-15-Bezug).
 
 ## Vorab statisch verifiziert (vor dem Deploy, ohne Hardware)
 
@@ -76,10 +81,7 @@ Mac/Desktop-Commander-Pfad (Pi aus der Sandbox nicht erreichbar, s. Memory
 
 ## Offen (→ Teil 16+)
 
-1. Browser-Check von Param-Panel („G-Knob"-Select) und Perf-Panel
-   (Global-Knob-Liste + „Speichern") gegen die Hardware — Backend ist verifiziert,
-   die UI-Verdrahtung noch per Hand durchzuklicken.
-2. Patch-Persistenz (.pch2/.prf2-Export), restliche GraphFuncs,
+1. Patch-Persistenz (.pch2/.prf2-Export), restliche GraphFuncs,
    Morph-Mode-Toggle/-Labels.
 
 ---
