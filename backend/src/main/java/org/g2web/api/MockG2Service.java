@@ -125,6 +125,12 @@ public final class MockG2Service implements G2Service {
     }
 
     @Override
+    public void renameMorph(int morph, String label) {
+        String n = label.length() > 7 ? label.substring(0, 7) : label;
+        emit(Map.of("type", "morphLabelsChanged", "morph", morph, "label", n));
+    }
+
+    @Override
     public void renameModule(String area, int module, String name) {
         emit(Map.of("type", "moduleRenamed", "area", area, "module", module, "name", name));
     }

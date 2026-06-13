@@ -164,6 +164,8 @@ public final class Main {
                             msg.get("key").asText(),
                             msg.get("value").asInt());
                     case "renamePerf" -> g2.renamePerf(msg.get("name").asText());
+                    case "renameMorph" -> g2.renameMorph(
+                            msg.get("morph").asInt(), msg.get("label").asText());
                     case "storePerf" -> g2.storePerf(
                             msg.get("bank").asInt(), msg.get("slot").asInt());
                     case "assignGlobalKnob" -> g2.assignGlobalKnob(

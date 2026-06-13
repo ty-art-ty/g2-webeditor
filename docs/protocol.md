@@ -230,7 +230,23 @@ morph,range,variation}` (range -128…127, 0 = Zuweisung löschen; Wire:
 S_SET_MORPH_RANGE 0x43 [loc,module,param,morph,|range|,neg,variation]) ist im
 Undo-Verlauf, Antwort = `morphChanged`; patchState trägt `settings` (Gain/
 Glide/Bend/Vibrato/Arpeggiator/Misc) und `morphs` (8 Gruppen: dial/mode/label/
-assigns) — UI dafür folgt.
+assigns). Das `label` kommt aus der patch-eigenen Morph-Label-Sektion (0x5b),
+nicht mehr aus der statischen Default-Liste.
+
+**Morph-Mode + Labels (Teil 19):** Der Morph-Mode (Knob/Morph) ist Param
+`8+morph` des Morphs-Pseudo-Moduls (id 1, settings) und wird über das normale
+`setParam` gesetzt — kein eigenes Kommando. `renameMorph {morph,label}` (morph
+0–7, label max 7 Zeichen) setzt das Gruppen-Label: Server schreibt die KOMPLETTE
+Sektion 0x5b via `slotSender.sendSectionMessage(Section(SMorphLabels_5b, …))`
+(gleicher Pfad wie die Patch-Description 0x21), Antwort =
+`morphLabelsChanged {morph,label}`. Nicht im Undo-Verlauf.
+
+**GraphFuncs (Teil 19, Best-Effort):** Rein clientseitig. Neben den
+referenz-treuen Hüllkurven (g2gui: 1/3/6/7/17/20/23/28) rendert `graphfuncs.ts`
+13 weitere GraphFuncs (Shaper-Transfer, EQ-/Filter-Gang, Osc-/LFO-Wellenform)
+als NÄHERUNG — in g2gui/G2-Edit gibt es diese Kurven nicht. Sie sind nicht
+geräte-treu und mit „~" markiert. Protokoll unverändert (gerechnet aus
+patchState-Param-Werten).
 
 **undoState** (v1): Broadcast nach jeder Verlaufs-Änderung (Mutation, undo,
 redo, Slot-/Patch-Wechsel): `{undoDepth, redoDepth, undoLabel?, redoLabel?}` —

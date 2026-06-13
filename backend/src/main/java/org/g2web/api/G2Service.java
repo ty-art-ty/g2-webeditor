@@ -109,6 +109,13 @@ public interface G2Service {
     /** Modul umbenennen (max 16 ASCII-Zeichen). Broadcastet "moduleRenamed". */
     void renameModule(String area, int module, String name);
 
+    /**
+     * Morph-Gruppen-Label setzen (morph 0–7, max 7 ASCII-Zeichen). Schreibt die
+     * komplette Morph-Label-Sektion (0x5b) ans Gerät und broadcastet
+     * "morphLabelsChanged". Nicht im Undo-Verlauf (wie Patch-Settings).
+     */
+    void renameMorph(int morph, String label);
+
     /** Modulfarbe setzen (0–24, Index in MODULE_COLORS). Broadcastet "moduleColorChanged". */
     void setModuleColor(String area, int module, int color);
 

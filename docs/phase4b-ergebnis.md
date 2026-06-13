@@ -1,3 +1,84 @@
+# Phase 4b — Ergebnis Teil 19: Morph-Mode + Labels & Best-Effort-GraphFuncs (2026-06-13)
+
+**Status: ✅ Morph-Mode-Toggle (Knob/Morph) + editierbare Morph-Gruppen-Labels
+am echten G2 verifiziert; zusätzlich 13 Best-Effort-GraphFunc-Kurven (Näherungen,
+NICHT geräte-treu) im Frontend, Browser-Check gegen den Pi bestanden.**
+
+## Wichtiger Vorab-Befund (GraphFuncs)
+
+Das g2gui-Referenz-`Graphs.java` (Commit `e75c6d0`) implementiert NUR die
+GraphFuncs, die wir schon hatten (1/3/6/7/17/20/23/28) — alle anderen sind dort
+`emptyGraph` (Platzhalter-Box). Auch G2-Edit zeichnet sie nicht. Die „restlichen
+GraphFuncs" existieren in KEINER Referenz. Auf Wunsch daher als **Best-Effort-
+Näherungen** umgesetzt: aus den Param-Werten berechnet, nur visuelles Feedback,
+**nicht geräte-treu** — gekennzeichnet durch eine kleine „~"-Marke oben links und
+einen Warnblock im Code (`graphfuncs.ts`).
+
+## Verifiziert am echten G2
+
+- **Morph (scripts/ws-morph19-test.py gegen den Pi):** patchState liefert je
+  Morph `label/dial/mode`; die Labels kommen jetzt aus der patch-eigenen
+  Sektion 0x5b (`Group 1…8`) statt der statischen Default-Liste (`Wheel/Vel/…`).
+  `renameMorph(0,'T19')` → `morphLabelsChanged`, `/api/patch` zeigt das neue
+  Label; 7-Zeichen-Kappung greift (`abcdefghij`→`abcdefg`); Original zurück.
+  Morph-Mode-Toggle über `setParam(area=settings, module=1, param=8+morph)`
+  (Knob↔Morph) wirkt und broadcastet `paramChanged`; zurückgesetzt. **PASS.**
+  Pi-Journal ohne 0x7e/SEVERE/Exception.
+- **GraphFuncs (headless Chrome + CDP gegen den Pi, Patch „HipHop beat box"):**
+  Seite `verbunden`, 173 Module, **keine JS-Exceptions**; der Patch enthält
+  Eq2Band (gf 36) und Overdrive (gf 15) → die neuen Kurven samt „~"-Marke
+  rendern (approxMarks > 0, 44 Control-Pfade), bestehende Env-Kurven intakt.
+- Backend-Compile gegen Java 25 auf dem Pi: `BUILD SUCCESSFUL`; Service nach
+  Deploy `active`, `/api/status` `connected:true`.
+
+## Umsetzung
+
+- **Morph-Labels (lesen):** `morphsOf` liest jetzt `getMorphLabel(morph)` (die
+  LibProperty der 0x5b-Sektion) statt `SettingsModules.MORPH_LABELS` (Fallback
+  auf den Default bei null/leer).
+- **Morph-Labels (schreiben):** neues `renameMorph(morph,label)` — setzt die
+  Label-LibProperty lokal (stringFieldProperty sendet nicht) und schickt die
+  KOMPLETTE Sektion 0x5b über `slotSender.sendSectionMessage(new Section(
+  SMorphLabels_5b, getMorphLabelValues()))` — exakt der Pfad, den g2lib selbst
+  für die Patch-Description-Sektion 0x21 nutzt (`PatchSettings.changed`). Kappung
+  auf 7 ASCII-Zeichen (`MorphLabel.Label` = 7er-Stringfeld). Broadcast
+  `morphLabelsChanged`. Nicht im Undo-Verlauf (wie Patch-Settings). WS-Command
+  `renameMorph`; Mock spiegelt.
+- **Morph-Mode-Toggle:** KEIN neues Wire-Format — der Mode ist Param `8+morph`
+  des Morphs-Pseudo-Moduls und läuft über das verifizierte `setParam`
+  (S_SET_PARAM 0x40). Frontend rendert pro Gruppe ein `<select>` Knob/Morph
+  (`ModParam.MorphMode`-Enum), Dial-Slider und editierbares Label (Enter/Blur →
+  renameMorph). `paramChanged` für Mode-Params (8–15) zeichnet das Panel neu
+  (folgt auch gerät-initiierten Änderungen).
+- **Best-Effort-GraphFuncs (`graphfuncs.ts`):** drei Framer (Transfer-Kurve,
+  Frequenzgang, Wellenform) + 13 Funktionen, Dispatch über `APPROX_FUNCS`:
+  Shaper-Transfer Clip(14)/Overdrive(15)/WaveWrap(16)/ShpExp(38)/Saturate(39);
+  EQ EqPeak(10)/Eq2Band(36)/Eq3Band(37); Filter FltLP(30)/FltHP(31);
+  Osc-/LFO-Wellenform OscShpA(32)/LfoB(33)/LfoShpA(34). Deps positional aus den
+  yaml-Dependencies des Graph-Controls (Param-Indizes, in g2lib-ModuleType
+  verifiziert). Übrige GraphFuncs bleiben Platzhalter.
+
+## Stolpersteine
+
+- **GraphFuncs ohne Referenz (s.o.)** — bewusste Abweichung von der bisherigen
+  Treue-Disziplin, explizit als Näherung markiert.
+- **G2-Reconnect-Falle** erneut nach dem Deploy-Restart (`connected:false`,
+  G2 in `lsusb` sichtbar): Recovery wie dokumentiert — Service stoppen → G2
+  physisch aus/ein → starten, danach `connected:true` (s. Memory `g2-pi-zugriff`).
+- **Geräte-Persistenz der Labels** ist über denselben `sendSectionMessage`-Pfad
+  wie die Patch-Description abgesichert; ein voller Restart-Re-Read zur
+  Persistenz-Probe wurde wegen der Reconnect-Falle nicht erzwungen (das echte,
+  patch-eigene Label `Group 1` beim Lesen beweist bereits, dass die 0x5b-Sektion
+  korrekt vom Gerät stammt).
+
+## Offen (→ Teil 20+)
+
+1. GraphFuncs ggf. anhand der Original-Clavia-Anzeige nachschärfen (falls eine
+   Referenz auftaucht); übrige GraphFuncs (Vocoder, DXRouter, SeqNote, …).
+2. Morph-Labels-Persistenz nach Service-Restart explizit gegenprüfen.
+
+---
+
 # Phase 4b — Ergebnis Teil 18: .prf2-Import (ganze Performance) (2026-06-13)
 
 **Status: ✅ Import einer Clavia-`.prf2`-Datei als GESAMTE Performance (alle 4

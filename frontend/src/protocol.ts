@@ -124,6 +124,8 @@ export interface MorphChanged {
   type: 'morphChanged'; variation: number; area: ParamArea;
   module: number; param: number; morph: number; range: number;
 }
+/** Morph-Gruppen-Label geändert (renameMorph oder Geräte-Echo der 0x5b-Sektion). */
+export interface MorphLabelsChanged { type: 'morphLabelsChanged'; morph: number; label: string; }
 export interface VariationChanged { type: 'variationChanged'; variation: number; slot?: string; }
 export interface Connection { type: 'connection'; connected: boolean; }
 export interface ModuleMoved {
@@ -157,7 +159,8 @@ export type ServerMessage =
   PatchState | ParamChanged | VariationChanged | Connection | ModuleMoved |
   CableAdded | CableDeleted | ModuleAdded | ModuleDeleted |
   ModuleRenamed | ModuleColorChanged | SelectionCopied | UndoState | ModeChanged |
-  MorphChanged | Visuals | PerfSettingsChanged | GlobalKnobsChanged | BanksChanged;
+  MorphChanged | MorphLabelsChanged | Visuals | PerfSettingsChanged |
+  GlobalKnobsChanged | BanksChanged;
 
 export interface SetParam {
   type: 'setParam'; area: ParamArea; module: number; param: number; value: number; variation: number;
@@ -214,6 +217,8 @@ export interface SetPerfSlotSetting {
   type: 'setPerfSlotSetting'; slot: number; key: string; value: number;
 }
 export interface RenamePerf { type: 'renamePerf'; name: string; }
+/** Morph-Gruppen-Label setzen (morph 0–7, max 7 Zeichen). Antwort = morphLabelsChanged. */
+export interface RenameMorph { type: 'renameMorph'; morph: number; label: string; }
 /**
  * Aktuelle Performance in Perf-Bank speichern (1-indexiert, unter aktuellem
  * Namen; überschreibt belegte Plätze). Bestätigung = banksChanged.
@@ -231,7 +236,7 @@ export type ClientMessage =
   MoveModules | DeleteModules | CopySelection |
   Undo | Redo |
   LoadPerf | SetMasterClock | SetClockRun | SetKeyboardRangeEnabled |
-  SetPerfSlotSetting | RenamePerf | StorePerf | AssignGlobalKnob | DeassignGlobalKnob;
+  SetPerfSlotSetting | RenamePerf | RenameMorph | StorePerf | AssignGlobalKnob | DeassignGlobalKnob;
 
 // REST: /api/banks
 export interface BankEntry { slot: number; name: string; category?: number; }

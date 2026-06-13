@@ -1339,6 +1339,28 @@ public final class G2LibService implements G2Service {
     }
 
     @Override
+    public void renameMorph(int morph, String label) {
+        if (morph < 0 || morph > 7) throw new IllegalArgumentException("Morph 0–7: " + morph);
+        // MorphLabel.Label ist ein 7-Zeichen-Stringfeld (Protocol.MorphLabel) → kappen.
+        String n = label.length() > 7 ? label.substring(0, 7) : label;
+        devices.runWithCurrentPerf(p -> {
+            Patch patch = p.getSelectedPatch();
+            PatchModule mm = patch.getArea(AreaId.Settings).getSettingsModule(
+                    org.g2fx.g2lib.model.SettingsModules.Morphs);
+            // stringFieldProperty.set() ist nur lokal (bekannte Falle) — aktualisiert
+            // aber die zugrundeliegende FieldValues-Subfield, also die Sektion.
+            mm.getMorphLabel(morph).set(n);
+            // Komplette Morph-Label-Sektion (0x5b) ans Gerät — exakt wie g2lib es
+            // selbst für die Patch-Description-Sektion (0x21) tut
+            // (PatchSettings.changed → sender.sendSectionMessage(Section(...))).
+            patch.getSlotSender().sendSectionMessage(new org.g2fx.g2lib.protocol.Sections
+                    .Section(org.g2fx.g2lib.protocol.Sections.SMorphLabels_5b,
+                    patch.getArea(AreaId.Settings).getMorphLabelValues()));
+            emit(Map.of("type", "morphLabelsChanged", "morph", morph, "label", n));
+        });
+    }
+
+    @Override
     public void setModuleColor(String area, int module, int color) {
         devices.runWithCurrentPerf(p -> {
             AreaId areaId = "fx".equals(area) ? AreaId.Fx : AreaId.Voice;
@@ -1649,8 +1671,18 @@ public final class G2LibService implements G2Service {
                                     .VarMorphParam.Range.intValue(kp))));
                 }
             }
+            // Echtes patch-eigenes Label aus der Morph-Label-Sektion (0x5b) statt
+            // der statischen Default-Liste; Fallback auf den Default-Namen.
+            String label;
+            try {
+                label = morphMod.getMorphLabel(morph).get();
+            } catch (RuntimeException e) {
+                label = org.g2fx.g2lib.model.SettingsModules.MORPH_LABELS[morph];
+            }
+            if (label == null || label.isEmpty())
+                label = org.g2fx.g2lib.model.SettingsModules.MORPH_LABELS[morph];
             out.add(Map.of("morph", morph,
-                    "label", org.g2fx.g2lib.model.SettingsModules.MORPH_LABELS[morph],
+                    "label", label,
                     "dial", vals.get(morph), "mode", vals.get(8 + morph),
                     "assigns", assigns));
         }

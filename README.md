@@ -27,9 +27,11 @@ live LED/VU meters and env/filter graph curves streamed from the device;
 performance mode (master clock, slot enable/keyboard/hold, key splits, perf
 browser); global knob assignments and storing a performance to a perf bank;
 patch/performance export as Clavia .pch2/.prf2 files and import (.pch2 into the
-active slot, .prf2 as a whole performance); multi-client via WebSocket
-broadcast. Still open: remaining graph funcs, morph mode toggle/labels.
-Details: `docs/phase*-ergebnis.md` (German).
+active slot, .prf2 as a whole performance); morph mode toggle (knob/morph) and
+editable morph-group labels; multi-client via WebSocket broadcast. The graph
+curves not present in the g2gui reference (shapers, EQ/filter response,
+osc/LFO waveforms) are rendered as best-effort approximations (marked "~", not
+device-accurate). Details: `docs/phase*-ergebnis.md` (German).
 
 ### Layout
 
@@ -99,8 +101,10 @@ live vom Gerät (gebündeltes `visuals`-Streaming) und Env-/Filter-Graph-Kurven
 Slot-Enable/Keyboard/Hold, Key-Splits, Perf-Name/-Browser); Global-Knob-
 Zuweisungen und Performance in eine Perf-Bank speichern; Patch-/Performance-
 Export als Clavia-`.pch2`/`.prf2`-Dateien und Import (`.pch2` in den aktiven
-Slot, `.prf2` als ganze Performance); Multi-Client via WebSocket-Broadcast.
-Offen: restliche GraphFuncs, Morph-Mode-Toggle/-Labels.
+Slot, `.prf2` als ganze Performance); Morph-Mode-Toggle (Knob/Morph) und
+editierbare Morph-Gruppen-Labels; Multi-Client via WebSocket-Broadcast. Die in
+der g2gui-Referenz fehlenden Graph-Kurven (Shaper, EQ-/Filter-Gang, Osc-/LFO-
+Wellenformen) sind Best-Effort-Näherungen (mit „~" markiert, nicht geräte-treu).
 Details: `docs/phase*-ergebnis.md`.
 
 ### Struktur

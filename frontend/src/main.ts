@@ -1,6 +1,6 @@
 import type {
-  Area, Bank, Cable, ClientMessage, GlobalKnob, Module, ModuleDefs, PatchState,
-  PerfSettings, ServerMessage, UndoInfo,
+  Area, Bank, Cable, ClientMessage, GlobalKnob, Module, ModuleDefs, MorphGroup,
+  PatchState, PerfSettings, ServerMessage, UndoInfo,
 } from './protocol';
 import { type AreaView, MODULE_COLORS, moduleIcon, renderArea } from './graph';
 import { setTables } from './textfuncs';
@@ -68,7 +68,12 @@ function handle(msg: ServerMessage) {
         if (sp) sp.value = msg.value;
         if (msg.module === 1 && currentPatch?.morphs) { // Morphs-Pseudo-Modul
           if (msg.param < 8) currentPatch.morphs[msg.param].dial = msg.value;
-          else if (msg.param < 16) currentPatch.morphs[msg.param - 8].mode = msg.value;
+          else if (msg.param < 16) {
+            currentPatch.morphs[msg.param - 8].mode = msg.value;
+            // Mode-Toggle (Knob/Morph) ist ein <select>, kein data-attr-Input —
+            // Panel neu zeichnen, damit es dem (auch gerät-initiierten) Stand folgt.
+            if (!selected) renderSettingsPanel();
+          }
         }
       } else {
         // State nachziehen, damit Re-Renders (Auswahl/Zoom) aktuelle Werte zeigen
@@ -94,6 +99,14 @@ function handle(msg: ServerMessage) {
       const md = mod?.modes?.find((x) => x.id === msg.mode);
       if (md) md.value = msg.value;
       areaViews.get(msg.area)?.updateModule(msg.module);
+      break;
+    }
+    case 'morphLabelsChanged': {
+      const g = currentPatch?.morphs?.[msg.morph];
+      if (g) {
+        g.label = msg.label;
+        if (!selected) renderSettingsPanel();
+      }
       break;
     }
     case 'morphChanged': {
@@ -695,6 +708,72 @@ function settingsParamRow(moduleId: number, param: { id: number; name: string;
   return row;
 }
 
+// Morph-Mode-Enum (g2lib ModParam.MorphMode): 0=Knob, 1=Morph.
+const MORPH_MODES = ['Knob', 'Morph'];
+
+/**
+ * Eine Morph-Gruppe: editierbares Label + Mode-Toggle (Knob/Morph) + Dial-Slider
+ * + Zuweisungs-Chips. Label = renameMorph (max 7 Zeichen), Mode/Dial = setParam
+ * auf dem Morphs-Pseudo-Modul (id 1, settings): Dial=Param morph, Mode=8+morph.
+ */
+function morphGroupBlock(g: MorphGroup): HTMLElement {
+  const block = document.createElement('div');
+  block.className = 'morphgroup';
+
+  const head = document.createElement('div');
+  head.className = 'morphhead';
+  const tag = document.createElement('span');
+  tag.className = 'mtag';
+  tag.textContent = `M${g.morph + 1}`;
+  // Editierbares Label (Enter/Blur sendet renameMorph; G2 kappt auf 7 Zeichen)
+  const lbl = document.createElement('input');
+  lbl.className = 'mlabel';
+  lbl.value = g.label;
+  lbl.maxLength = 7;
+  lbl.title = 'Morph-Label (Enter speichert, max 7 Zeichen)';
+  const sendLbl = () => {
+    const v = lbl.value.trim();
+    if (v && v !== g.label) send({ type: 'renameMorph', morph: g.morph, label: v });
+    else lbl.value = g.label;
+  };
+  lbl.onkeydown = (ev) => { if (ev.key === 'Enter') (ev.target as HTMLInputElement).blur(); };
+  lbl.onblur = sendLbl;
+  // Mode-Toggle Knob/Morph
+  const mode = document.createElement('select');
+  mode.className = 'mmode';
+  mode.title = 'Morph-Mode (Knob = manuell, Morph = via Morph-Quelle)';
+  MORPH_MODES.forEach((m, ix) => {
+    const o = document.createElement('option');
+    o.value = String(ix); o.textContent = m;
+    mode.appendChild(o);
+  });
+  mode.value = String(g.mode);
+  mode.onchange = () => {
+    g.mode = Number(mode.value);
+    send({ type: 'setParam', area: 'settings', module: 1, param: 8 + g.morph,
+           value: g.mode, variation: currentVariation });
+  };
+  head.append(tag, lbl, mode);
+  block.appendChild(head);
+
+  // Dial-Slider (Param g.morph)
+  block.appendChild(settingsParamRow(1, {
+    id: g.morph, name: 'Dial', value: g.dial, min: 0, max: 127 }));
+
+  if (g.assigns.length) {
+    const chips = document.createElement('div');
+    chips.className = 'morphassigns';
+    chips.textContent = g.assigns.map((a) => {
+      const m = a.area !== 'settings' ? findModule(a.area, a.module) : undefined;
+      const name = m ? (m.name || m.typeName) : `${a.area}/${a.module}`;
+      const pname = m?.params.find((x) => x.id === a.param)?.name ?? `#${a.param}`;
+      return `${name} · ${pname} (${a.range > 0 ? '+' : ''}${a.range})`;
+    }).join('  |  ');
+    block.appendChild(chips);
+  }
+  return block;
+}
+
 /** Patch-Settings + Morph-Gruppen (rechtes Panel, wenn nichts ausgewählt ist). */
 function renderSettingsPanel() {
   if (!currentPatch?.settings) {
@@ -711,23 +790,7 @@ function renderSettingsPanel() {
     const h = document.createElement('h4');
     h.textContent = `Morphs (Variation ${currentVariation + 1})`;
     div.appendChild(h);
-    for (const g of currentPatch.morphs) {
-      // Dial = Param g.morph, Mode = Param 8+g.morph des Morphs-Pseudo-Moduls (id 1)
-      div.appendChild(settingsParamRow(1, {
-        id: g.morph, name: `M${g.morph + 1} ${g.label}`,
-        value: g.dial, min: 0, max: 127 }));
-      if (g.assigns.length) {
-        const chips = document.createElement('div');
-        chips.className = 'morphassigns';
-        chips.textContent = g.assigns.map((a) => {
-          const m = a.area !== 'settings' ? findModule(a.area, a.module) : undefined;
-          const name = m ? (m.name || m.typeName) : `${a.area}/${a.module}`;
-          const pname = m?.params.find((x) => x.id === a.param)?.name ?? `#${a.param}`;
-          return `${name} · ${pname} (${a.range > 0 ? '+' : ''}${a.range})`;
-        }).join('  |  ');
-        div.appendChild(chips);
-      }
-    }
+    for (const g of currentPatch.morphs) div.appendChild(morphGroupBlock(g));
   }
   for (const sm of currentPatch.settings) {
     const h = document.createElement('h4');
