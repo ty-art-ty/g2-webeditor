@@ -23,8 +23,11 @@ formatted value displays), module faces rendered from g2fx UI data; cables
 multi-select (rubber band/shift-click) with block move/copy/delete including
 internal cables; server-side undo/redo with UI feedback; slots A–D, variations,
 patch settings (gain/glide/bend/vibrato/arpeggiator) and morph assignments;
-multi-client via WebSocket broadcast. Still open: performance mode, live
-LED/VU/graph feedback, patch persistence (.pch2 export).
+live LED/VU meters and env/filter graph curves streamed from the device;
+performance mode (master clock, slot enable/keyboard/hold, key splits, perf
+browser); global knob assignments and storing a performance to a perf bank;
+multi-client via WebSocket broadcast. Still open: patch persistence
+(.pch2/.prf2 export), remaining graph funcs, morph mode toggle/labels.
 Details: `docs/phase*-ergebnis.md` (German).
 
 ### Layout
@@ -92,9 +95,10 @@ Undo/Redo mit UI-Feedback; Slots A–D, Variations, Patch-Settings
 (Gain/Glide/Bend/Vibrato/Arpeggiator) und Morph-Zuweisungen; LED-/VU-Anzeigen
 live vom Gerät (gebündeltes `visuals`-Streaming) und Env-/Filter-Graph-Kurven
 (ADSR/ADDSR/ADR/AHD/Multi/D/H, FltClassic); Performance-Mode (Master-Clock,
-Slot-Enable/Keyboard/Hold, Key-Splits, Perf-Name/-Browser); Multi-Client via
-WebSocket-Broadcast. Offen: Perf speichern/laden-Verifikation, Global Knobs,
-restliche GraphFuncs, Patch-Persistenz (.pch2-Export).
+Slot-Enable/Keyboard/Hold, Key-Splits, Perf-Name/-Browser); Global-Knob-
+Zuweisungen und Performance in eine Perf-Bank speichern; Multi-Client via
+WebSocket-Broadcast. Offen: Patch-Persistenz (.pch2/.prf2-Export), restliche
+GraphFuncs, Morph-Mode-Toggle/-Labels.
 Details: `docs/phase*-ergebnis.md`.
 
 ### Struktur
