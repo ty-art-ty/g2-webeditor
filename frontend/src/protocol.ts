@@ -51,6 +51,8 @@ export interface ControlDef {
 export interface ModuleDef {
   ix: number; height: number; inputs: ConnDef[]; outputs: ConnDef[];
   controls: ControlDef[];
+  /** ModPage category (g2lib ModuleType.ModPage), e.g. "Osc", "Filter". */
+  page?: string;
 }
 export type ModuleDefs = Record<string, ModuleDef>;
 /** /param-tables.json — Konstanten für die TextFunc-Formatter (null = -Inf). */

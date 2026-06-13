@@ -30,12 +30,14 @@ def short_name(enum_name: str) -> str:
 
 
 def parse_module_types(java: str) -> dict[str, dict]:
-    """shortName -> {ix, height} aus den Enum-Konstanten M_Xxx(ix, "longName", height, ...)."""
+    """shortName -> {ix, height, page} aus M_Xxx(ix, "longName", height, ModPage.Page.ix(n), ...)."""
     out = {}
     for m in re.finditer(
-        r"^\s{4}(M_\w+)\s*\(\s*(\d+),\s*\"[^\"]*\",\s*(\d+),", java, re.MULTILINE
+        r"^\s{4}(M_\w+)\s*\(\s*(\d+),\s*\"[^\"]*\",\s*(\d+),\s*ModPage\.(\w+)\.ix",
+        java, re.MULTILINE,
     ):
-        out[short_name(m.group(1))] = {"ix": int(m.group(2)), "height": int(m.group(3))}
+        out[short_name(m.group(1))] = {
+            "ix": int(m.group(2)), "height": int(m.group(3)), "page": m.group(4)}
     return out
 
 
@@ -184,6 +186,7 @@ def main(g2fx: Path) -> None:
         controls = ui.get("Controls") or []
         defs[name] = {
             "ix": t["ix"],
+            "page": t["page"],
             "height": ui.get("Height", t["height"]),
             "inputs": conns(controls, "Input"),
             "outputs": conns(controls, "Output"),

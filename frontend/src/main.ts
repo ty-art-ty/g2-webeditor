@@ -598,29 +598,72 @@ function morphRow(m: Module, paramId: number): HTMLElement {
   return row;
 }
 
-/** "+ Modul": Typ aus module-defs wählen (datalist) und unten in der Area anlegen. */
+// Modul-Kategorien (g2lib ModuleType.ModPage) in Enum-Reihenfolge + Anzeige-Label.
+const MODULE_CATEGORIES: [string, string][] = [
+  ['InOut', 'In/Out'], ['Note', 'Note'], ['Osc', 'Osc'], ['LFO', 'LFO'],
+  ['Rnd', 'Random'], ['Env', 'Env'], ['Filter', 'Filter'], ['FX', 'FX'],
+  ['Delay', 'Delay'], ['Shaper', 'Shaper'], ['Level', 'Level'], ['Mixer', 'Mixer'],
+  ['Switch', 'Switch'], ['Logic', 'Logic'], ['Seq', 'Seq'], ['MIDI', 'MIDI'],
+];
+
+/** <select> mit allen Modultypen, nach Kategorie gruppiert (optgroups). */
+function buildCategorySelect(): HTMLSelectElement {
+  const sel = document.createElement('select');
+  sel.className = 'modpick';
+  sel.title = 'Add a module by category';
+  sel.innerHTML = '<option value="">+ Module…</option>';
+  const byPage = new Map<string, string[]>();
+  for (const [name, def] of Object.entries(moduleDefs)) {
+    const pg = def.page ?? 'Other';
+    (byPage.get(pg) ?? byPage.set(pg, []).get(pg)!).push(name);
+  }
+  // Bekannte Kategorien in Enum-Reihenfolge, unbekannte (defensiv) hinten dran.
+  const order = [...MODULE_CATEGORIES];
+  for (const pg of byPage.keys()) {
+    if (!order.some(([k]) => k === pg)) order.push([pg, pg]);
+  }
+  for (const [pg, label] of order) {
+    const names = byPage.get(pg);
+    if (!names?.length) continue;
+    const og = document.createElement('optgroup');
+    og.label = label;
+    for (const n of names.sort()) {
+      const o = document.createElement('option');
+      o.value = n; o.textContent = n;
+      og.appendChild(o);
+    }
+    sel.appendChild(og);
+  }
+  return sel;
+}
+
+/** "+ Modul": nach Kategorie wählen (select) ODER per Tippfeld (datalist), unten in der Area anlegen. */
 function addModuleControl(area: Area): HTMLElement {
   const div = document.createElement('div');
   div.className = 'addmod';
-  const input = document.createElement('input');
-  input.setAttribute('list', 'modtypes');
-  input.placeholder = '+ Module…';
-  input.title = 'Type/pick a module type, Enter or + adds it';
-  const add = () => {
-    const typeName = input.value.trim();
+  // Platzierung: unterhalb des untersten Moduls der Area, Spalte 0
+  const addType = (typeName: string) => {
     if (!moduleDefs[typeName] || !currentPatch) return;
-    // Platzierung: unterhalb des untersten Moduls der Area, Spalte 0
     const row = currentPatch.modules
       .filter((m) => m.area === area)
       .reduce((r, m) => Math.max(r, m.row + (moduleDefs[m.typeName]?.height ?? 2)), 0);
     send({ type: 'addModule', area, typeName, col: 0, row });
-    input.value = ''; // Modul kommt als moduleAdded + Re-Render zurück
+    // Modul kommt als moduleAdded + Re-Render zurück
   };
+  // Kategorie-Auswahl (Browsen nach Kategorie)
+  const cat = buildCategorySelect();
+  cat.onchange = () => { const t = cat.value; cat.value = ''; addType(t); };
+  // Tippfeld + datalist (Type-Ahead)
+  const input = document.createElement('input');
+  input.setAttribute('list', 'modtypes');
+  input.placeholder = 'type…';
+  input.title = 'Type a module name, Enter or + adds it';
+  const add = () => { addType(input.value.trim()); input.value = ''; };
   input.onkeydown = (ev) => { if (ev.key === 'Enter') add(); };
   const btn = document.createElement('button');
   btn.textContent = '＋';
   btn.onclick = add;
-  div.append(input, btn);
+  div.append(cat, input, btn);
   return div;
 }
 
