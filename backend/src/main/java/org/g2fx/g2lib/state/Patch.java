@@ -342,7 +342,10 @@ public class Patch {
 
 
     public ByteBuffer writeFile() throws Exception {
-        ByteBuffer buf = ByteBuffer.allocateDirect(2048);
+        // g2web-Lokalpatch: 2048 Byte reichen für echte Patches nicht
+        // (BufferOverflowException beim .pch2-Export), Performance.writeFile nutzt
+        // ebenfalls 0xffff. Siehe docs/phase4b-ergebnis.md Teil 16.
+        ByteBuffer buf = ByteBuffer.allocateDirect(0xffff);
         buf.put(HEADER.rewind());
         int start = buf.position();
         if (version == -1) {

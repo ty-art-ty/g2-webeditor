@@ -55,6 +55,10 @@ public final class Main {
             g2.storePerf(req.get("bank").asInt(), req.get("slot").asInt());
             ctx.status(202); // Bestätigung kommt als banksChanged via WS
         });
+        // Export als Datei-Download (Clavia .pch2/.prf2). Dateiname vom Server
+        // (Patch-/Perf-Name); ohne angeschlossenen G2 → 503.
+        app.get("/api/patch/export", ctx -> serveExport(ctx, g2::exportPatch));
+        app.get("/api/perf/export", ctx -> serveExport(ctx, g2::exportPerformance));
 
         // --- WebSocket: Echtzeit-Param-Sync ---
         app.ws("/ws", ws -> {
@@ -177,6 +181,19 @@ public final class Main {
         var out = new java.util.ArrayList<Integer>();
         for (JsonNode n : arr) out.add(n.asInt());
         return out;
+    }
+
+    /** ExportFile als Datei-Download ausliefern; ohne Hardware → 503. */
+    private static void serveExport(io.javalin.http.Context ctx,
+            java.util.function.Supplier<G2Service.ExportFile> supplier) {
+        try {
+            G2Service.ExportFile f = supplier.get();
+            ctx.contentType("application/octet-stream")
+               .header("Content-Disposition", "attachment; filename=\"" + f.filename() + "\"")
+               .result(f.data());
+        } catch (UnsupportedOperationException | IllegalStateException e) {
+            ctx.status(503).result(e.getMessage() == null ? "nicht verfügbar" : e.getMessage());
+        }
     }
 
     private static G2Service createService() {

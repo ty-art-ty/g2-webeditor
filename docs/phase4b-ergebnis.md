@@ -1,3 +1,55 @@
+# Phase 4b — Ergebnis Teil 16: Patch-/Performance-Export (.pch2/.prf2) (2026-06-13)
+
+**Status: ✅ Export des aktiven Slots (.pch2) und der Performance (.prf2) als
+Clavia-Dateien — am echten G2 verifiziert (Header + CRC16 geprüft).**
+
+## Verifiziert am echten G2
+
+- `GET /api/perf/export` → `New Performance.prf2`, 12944 Byte, HTTP 200,
+  `Content-Disposition`-Dateiname korrekt. Header = exakt
+  `Version=Nord Modular G2 File Format 1 / Type=Performance / Version=23 /
+  Info=BUILD 320`; CRC16/CCITT (Init 0, big-endian) über alles ab Offset 86
+  nachgerechnet = Trailer `0xcea3` ✓.
+- `GET /api/patch/export` → `HipHop beat box.pch2`, 5562 Byte, HTTP 200;
+  Header `Type=Patch`; CRC16 ab Offset 80 = Trailer `0xb0ec` ✓.
+- Ohne angeschlossenen G2 liefern beide Endpoints `503` (verifiziert).
+
+## Umsetzung
+
+- **Backend**: g2lib serialisiert bereits vollständig — `Patch.writeFile()`
+  (.pch2: Header + `0x17 version` + `FILE_SECTIONS` + CRC) und
+  `Performance.writeFile()` (.prf2: + PerfSettings + 4 Slot-Patches + Global
+  Knobs). `G2Service.exportPatch/exportPerformance` rufen sie über
+  `invokeWithCurrentPerf` auf und liefern `ExportFile(filename, data)`;
+  Dateiname = saneierter Patch-/Perf-Name. `Main`: zwei GET-Endpoints mit
+  `Content-Disposition`-Download, `UnsupportedOperationException`/
+  `IllegalStateException` → 503. Mock wirft (kein realer State).
+- **Frontend**: zwei Download-Links im Header (`⬇ .pch2`, `⬇ .prf2`,
+  `download`-Attribut, Dateiname vom Server).
+
+## Stolpersteine
+
+- **g2lib-Bug (vendored-Lokalpatch):** `Patch.writeFile()` allokierte nur
+  2048 Byte → `BufferOverflowException` bei einem echten Patch (HipHop = 5562
+  Byte). Auf `0xffff` erhöht (wie `Performance.writeFile()` es ohnehin tut).
+  Erst danach lieferte der .pch2-Export 200.
+- **G2-Reconnect-Falle:** Nach den Deploy-Restarts (jeder mit `usbreset` als
+  ExecStartPre) verweigerte der G2 den Reconnect — `Did not receive entries
+  message!` in `Device.initialize`, obwohl das Gerät auf Version-Requests
+  antwortete und in `lsusb` stand. Weder mehrfacher `systemctl restart` noch
+  manuelle `usbreset` halfen. Zuverlässige Lösung: **Service stoppen → G2
+  physisch aus/ein → Service starten** (ungestörte USB-Enumeration, bevor der
+  Handle geöffnet wird). Danach überstand der Connect sogar einen normalen
+  Restart.
+
+## Offen (→ Teil 17+)
+
+1. Datei-Import (.pch2/.prf2 laden → auf das Gerät schicken) — Gegenstück zum
+   Export, deutlich größer (Parsing + Bulk-Send).
+2. Restliche GraphFuncs, Morph-Mode-Toggle/-Labels.
+
+---
+
 # Phase 4b — Ergebnis Teil 15: Global Knobs + Perf-Store (2026-06-13)
 
 **Status: ✅ Global Knobs (assign/deassign) + Perf-Store + loadPerf am echten

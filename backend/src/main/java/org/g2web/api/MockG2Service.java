@@ -242,6 +242,16 @@ public final class MockG2Service implements G2Service {
         emit(Map.of("type", "globalKnobsChanged", "knobs", List.copyOf(globalKnobs)));
     }
 
+    // Export serialisiert echten g2lib-Performance-/Patch-State — im Mock nicht
+    // vorhanden; der Endpoint meldet das als 503.
+    @Override public ExportFile exportPatch() {
+        throw new UnsupportedOperationException("Export nur mit angeschlossenem G2");
+    }
+
+    @Override public ExportFile exportPerformance() {
+        throw new UnsupportedOperationException("Export nur mit angeschlossenem G2");
+    }
+
     @Override public void onEvent(Consumer<Map<String, Object>> l) { listeners.add(l); }
 
     private void emit(Map<String, Object> event) { listeners.forEach(l -> l.accept(event)); }

@@ -168,6 +168,22 @@ public interface G2Service {
     /** Global-Knob-Zuweisung lösen (knob 0–119). Broadcastet "globalKnobsChanged". */
     void deassignGlobalKnob(int knob);
 
+    /** Eine serialisierte Clavia-Datei mit Vorschlags-Dateinamen (inkl. Endung). */
+    record ExportFile(String filename, byte[] data) {}
+
+    /**
+     * Aktiven Slot als Clavia-Patch-Datei (.pch2) serialisieren (g2lib
+     * {@code Patch.writeFile}: Header + Version + File-Sektionen + CRC16).
+     */
+    ExportFile exportPatch();
+
+    /**
+     * Gesamte Performance als Clavia-Performance-Datei (.prf2) serialisieren
+     * (g2lib {@code Performance.writeFile}: Header + Version + PerfSettings +
+     * 4 Slot-Patches + Global Knobs + CRC16).
+     */
+    ExportFile exportPerformance();
+
     /** Events vom G2 (Param-Änderungen am Gerät, Patch-Wechsel, Connect/Disconnect). */
     void onEvent(Consumer<Map<String, Object>> listener);
 }

@@ -37,6 +37,14 @@
     }
     #undoredo button:disabled { opacity: .35; cursor: default; }
 
+    #export { display: flex; gap: .25rem; }
+    #export a {
+      border: 1px solid var(--border); border-radius: 4px; padding: 0 .5rem;
+      height: 2rem; display: flex; align-items: center; background: none;
+      color: var(--text); cursor: pointer; font-size: .8rem; text-decoration: none;
+    }
+    #export a:hover { border-color: var(--accent); }
+
     #slots { display: flex; gap: .25rem; }
     #slots button {
       height: 2rem; padding: 0 .55rem; border: 1px solid var(--border); border-radius: 4px;
@@ -172,6 +180,10 @@
     <div id="undoredo">
       <button id="undobtn" title="Rückgängig (⌘Z)" disabled>↶</button>
       <button id="redobtn" title="Wiederholen (⇧⌘Z)" disabled>↷</button>
+    </div>
+    <div id="export">
+      <a href="/api/patch/export" download title="Aktiven Slot als Clavia-Patch (.pch2) herunterladen">⬇&nbsp;.pch2</a>
+      <a href="/api/perf/export" download title="Performance als Clavia-Datei (.prf2) herunterladen">⬇&nbsp;.prf2</a>
     </div>
     <div id="slots"></div>
     <div id="variations"></div>

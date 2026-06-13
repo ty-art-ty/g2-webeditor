@@ -11,6 +11,8 @@ TypeScript-Spiegel: `frontend/src/protocol.ts` — beide synchron halten.
 | `/api/patch` | GET | aktueller Patch-State (siehe unten) |
 | `/api/banks` | GET | `[{bank, patches: [{slot, name}]}]` |
 | `/api/patch/load` | POST | Body `{bank, slot}` → 202; neuer State kommt via WS |
+| `/api/patch/export` | GET | aktiver Slot als Clavia-`.pch2` (Datei-Download); ohne G2 → 503 |
+| `/api/perf/export` | GET | Performance als Clavia-`.prf2` (Datei-Download); ohne G2 → 503 |
 
 ## WebSocket Server → Client
 
@@ -158,6 +160,16 @@ der Server die Liste neu an (`O_GLOBAL_KNOBS` 0x5e, Antwort Section 0x5f, Code
 `I_GLOBAL_KNOB_ASSIGMENTS`) — die 120 LibProperty-Listener bündeln das Echo zu
 EINEM `globalKnobsChanged`. (Das 0x1c/0x1d-Geräte-Echo ist nur ein `ok`, daher
 das explizite Neuanfordern.)
+
+**Export** (v1, Teil 16): Kein neues Wire-Format — der Server serialisiert den
+aktuellen Zustand über g2lib `Patch.writeFile()` (`.pch2`) bzw.
+`Performance.writeFile()` (`.prf2`) und liefert ihn als Datei-Download
+(`/api/patch/export`, `/api/perf/export`, Dateiname = Patch-/Perf-Name). Format:
+Clavia-Textheader (`Version=Nord Modular G2 File Format 1\r\nType=Patch|Performance
+\r\nVersion=23\r\nInfo=BUILD 320\r\n\0`, auf 80 bzw. 86 Byte genullt), dann
+`0x17 <version>`, die File-Sektionen (Patch: `FILE_SECTIONS`; Perf: PerfSettings
++ 4 Slot-Patches je `FILE_VARIATIONS` + Global Knobs) und 2 Byte CRC16/CCITT
+(Init 0x0000, big-endian) über alles ab Offset hinter dem Header.
 
 **undo/redo** (v1): Serverseitiger Verlauf (max 100 Einträge, ein Stack für alle
 Clients) über alle Mutationen: moveModule (inkl. Kollisions-Pushes), addModule,

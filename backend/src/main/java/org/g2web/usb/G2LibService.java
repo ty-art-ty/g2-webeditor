@@ -435,6 +435,39 @@ public final class G2LibService implements G2Service {
     }
 
     @Override
+    public ExportFile exportPatch() {
+        if (!connected) throw new IllegalStateException("kein G2 verbunden");
+        return devices.invokeWithCurrentPerf(p -> {
+            Patch patch = p.getSelectedPatch();
+            return new ExportFile(safeName(patch.name().get(), "Patch") + ".pch2",
+                    bytesOf(patch.writeFile()));
+        });
+    }
+
+    @Override
+    public ExportFile exportPerformance() {
+        if (!connected) throw new IllegalStateException("kein G2 verbunden");
+        return devices.invokeWithCurrentPerf(p ->
+                new ExportFile(safeName(p.perfName().get(), "Performance") + ".prf2",
+                        bytesOf(p.writeFile())));
+    }
+
+    /** ByteBuffer (von writeFile: Position==Limit am Ende) in ein byte[] kopieren. */
+    private static byte[] bytesOf(java.nio.ByteBuffer buf) {
+        buf.rewind();
+        byte[] b = new byte[buf.limit()];
+        buf.get(b);
+        return b;
+    }
+
+    /** Patch-/Perf-Name → dateinamen-tauglich (ASCII, ohne Pfadtrenner). */
+    private static String safeName(String name, String fallback) {
+        if (name == null || name.isBlank()) return fallback;
+        String s = name.trim().replaceAll("[^A-Za-z0-9 ._-]", "_");
+        return s.isBlank() ? fallback : s;
+    }
+
+    @Override
     public void undo() {
         devices.runWithCurrentPerf(p -> {
             UndoEntry e;
