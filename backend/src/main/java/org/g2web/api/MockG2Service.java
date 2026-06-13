@@ -12,11 +12,22 @@ public final class MockG2Service implements G2Service {
     private final List<Consumer<Map<String, Object>>> listeners = new ArrayList<>();
     private final Map<String, Integer> params = new ConcurrentHashMap<>();
     private volatile int variation = 0;
+    // initPatch() leert den Demo-Patch; loadPatch füllt ihn wieder.
+    private volatile boolean cleared = false;
 
     @Override public boolean isConnected() { return true; }
 
     @Override
     public Map<String, Object> getPatchState() {
+        if (cleared) {
+            return Map.of(
+                "type", "patchState",
+                "name", "Init patch",
+                "perfSettings", perfSettingsOf(),
+                "variation", variation,
+                "modules", List.of(),
+                "cables", List.of());
+        }
         return Map.of(
             "type", "patchState",
             "name", "MockPatch",
@@ -44,7 +55,9 @@ public final class MockG2Service implements G2Service {
                 List.of(Map.of("slot", 1, "name", "MockPatch"))));
     }
 
-    @Override public void loadPatch(int bank, int slot) { emit(getPatchState()); }
+    @Override public void loadPatch(int bank, int slot) { cleared = false; emit(getPatchState()); }
+
+    @Override public void initPatch() { cleared = true; emit(getPatchState()); }
 
     @Override
     public void moveModule(String area, int module, int col, int row) {

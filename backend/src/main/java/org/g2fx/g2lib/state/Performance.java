@@ -92,6 +92,23 @@ public class Performance {
     }
 
     /**
+     * g2web-Vendor-Patch: Den Slot durch einen leeren Init-Patch ersetzen und ans
+     * Gerät senden — analog {@link #readPatchFromFile}, nur ohne Datei. Ein frisch
+     * konstruierter Patch hat leere Areas; {@code initNew()} setzt Settings, Morphs,
+     * Global-Knobs, Morph-Labels und TextPad auf Default.
+     */
+    public Patch initNewPatch(Slot slot) throws Exception {
+        Patch patch = new Patch(slot, usb);
+        patch.setVersion(version);
+        patch.initNew();
+        patch.name().set("Init patch");
+        slots.put(slot, patch);
+        patch.sendPatch();
+        for (Patch p : slots.values()) { if (p!=patch) p.sendUnk6Request(); }
+        return patch;
+    }
+
+    /**
      * Read ahead perf settings.
      */
     private boolean readPerformanceSettings(ByteBuffer buf) {

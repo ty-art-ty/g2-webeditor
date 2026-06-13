@@ -1153,6 +1153,14 @@ async function init() {
   undoBtn.onclick = () => send({ type: 'undo' });
   redoBtn.onclick = () => send({ type: 'redo' });
   wireImport();
+  ($('initbtn') as HTMLButtonElement).onclick = async () => {
+    if (!confirm('Initialize the active slot? The current patch will be cleared.')) return;
+    selected = null;
+    clipboard = null;
+    const res = await fetch('/api/patch/init', { method: 'POST' });
+    if (!res.ok) alert(`Init failed (${res.status}): ${await res.text()}`);
+    // Erfolg: neuer patchState kommt via WS
+  };
   try {
     setTables(await (await fetch('/param-tables.json')).json());
   } catch {

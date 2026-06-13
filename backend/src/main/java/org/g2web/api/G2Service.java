@@ -23,6 +23,16 @@ public interface G2Service {
 
     void loadPatch(int bank, int slot);
 
+    /**
+     * Aktiven Slot mit einem leeren Init-Patch überschreiben (Module/Kabel weg,
+     * Settings/Morphs/Global-Knobs auf Default). Sendet den frischen Patch ans
+     * Gerät, verwirft den Undo-Verlauf und broadcastet danach den neuen
+     * {@code patchState}.
+     *
+     * @throws IllegalStateException ohne angeschlossenen G2
+     */
+    void initPatch();
+
     /** @param area "va" oder "fx" — Modul-Indizes sind nur pro Area eindeutig. */
     void setParam(String area, int module, int param, int value, int variation);
 

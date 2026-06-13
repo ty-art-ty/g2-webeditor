@@ -50,6 +50,16 @@ public final class Main {
             g2.loadPatch(req.get("bank").asInt(), req.get("slot").asInt());
             ctx.status(202);
         });
+        // Aktiven Slot mit leerem Init-Patch überschreiben. Ohne G2 → 503;
+        // Erfolg → 202, neuer patchState via WS.
+        app.post("/api/patch/init", ctx -> {
+            try {
+                g2.initPatch();
+                ctx.status(202);
+            } catch (UnsupportedOperationException | IllegalStateException e) {
+                ctx.status(503).result(e.getMessage() == null ? "nicht verfügbar" : e.getMessage());
+            }
+        });
         app.post("/api/perf/store", ctx -> {
             JsonNode req = JSON.readTree(ctx.body());
             g2.storePerf(req.get("bank").asInt(), req.get("slot").asInt());

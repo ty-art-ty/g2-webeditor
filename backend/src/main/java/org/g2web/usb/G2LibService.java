@@ -468,6 +468,21 @@ public final class G2LibService implements G2Service {
     }
 
     @Override
+    public void initPatch() {
+        if (!connected) throw new IllegalStateException("kein G2 verbunden");
+        devices.invokeWithCurrentPerf(p -> {
+            // Ersetzt das Patch-Objekt im Slot durch einen leeren Init-Patch und
+            // sendet ihn ans Gerät → Listener neu anhängen + patchState broadcasten
+            // (analog importPatch; der loadPatch-Lifecycle feuert hier nicht).
+            Patch patch = p.initNewPatch(p.getSelectedSlot());
+            clearUndo();
+            attachPatchListeners(patch);
+            emit(patchStateOf(p));
+            return null;
+        });
+    }
+
+    @Override
     public void importPatch(byte[] data, String filename) {
         if (!connected) throw new IllegalStateException("kein G2 verbunden");
         // Synchron (invoke), damit Header-/CRC-Fehler aus readPatchFromFile zum
