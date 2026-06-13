@@ -33,6 +33,17 @@ public final class Main {
             cfg.staticFiles.add("/public", Location.CLASSPATH);
         });
 
+        // index.html darf NIE gecacht werden: nach einem Redeploy ändert sich der
+        // (gehashte) Bundle-Dateiname; eine gecachte index.html würde sonst auf das
+        // alte, gelöschte Bundle zeigen → 503 → leere Seite. Die gehashten Assets
+        // unter /assets/ bleiben cachebar (ihr Name ändert sich bei Änderungen).
+        app.after(ctx -> {
+            String p = ctx.path();
+            if (p.equals("/") || p.endsWith(".html")) {
+                ctx.header("Cache-Control", "no-store, must-revalidate");
+            }
+        });
+
         // --- REST ---
         app.get("/api/status", ctx -> ctx.json(Map.of(
                 "connected", g2.isConnected(),
