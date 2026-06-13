@@ -33,6 +33,16 @@ public interface G2Service {
      */
     void initPatch();
 
+    /**
+     * Den Patch des aktiven Slots in einen Patch-Bank-Platz speichern (1-indexiert,
+     * Gegenstück zu {@link #loadPatch}; gespeichert wird unter dem aktuellen
+     * Patch-Namen). Das Gerät bestätigt mit einer Entry-Liste → Broadcast
+     * "banksChanged", Clients laden /api/banks neu.
+     *
+     * @throws IllegalStateException ohne angeschlossenen G2
+     */
+    void storePatch(int bank, int entry);
+
     /** @param area "va" oder "fx" — Modul-Indizes sind nur pro Area eindeutig. */
     void setParam(String area, int module, int param, int value, int variation);
 

@@ -1161,6 +1161,21 @@ async function init() {
     if (!res.ok) alert(`Init failed (${res.status}): ${await res.text()}`);
     // Erfolg: neuer patchState kommt via WS
   };
+  ($('pstorebtn') as HTMLButtonElement).onclick = async () => {
+    const bank = Number(($('pstorebank') as HTMLInputElement).value);
+    const slot = Number(($('pstoreslot') as HTMLInputElement).value);
+    if (!bank || !slot) return;
+    const pname = currentPatch?.name ?? 'patch';
+    if (!confirm(`Store patch "${pname}" to bank ${bank}, slot ${slot}?`
+        + ' An existing entry will be overwritten.')) return;
+    const res = await fetch('/api/patch/store', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bank, slot }),
+    });
+    if (!res.ok) alert(`Store failed (${res.status}): ${await res.text()}`);
+    // Erfolg: banksChanged via WS → Patch-Liste lädt neu
+  };
   try {
     setTables(await (await fetch('/param-tables.json')).json());
   } catch {

@@ -73,6 +73,15 @@ public final class Main {
             g2.storePerf(req.get("bank").asInt(), req.get("slot").asInt());
             ctx.status(202); // Bestätigung kommt als banksChanged via WS
         });
+        app.post("/api/patch/store", ctx -> {
+            JsonNode req = JSON.readTree(ctx.body());
+            try {
+                g2.storePatch(req.get("bank").asInt(), req.get("slot").asInt());
+                ctx.status(202); // Bestätigung kommt als banksChanged via WS
+            } catch (UnsupportedOperationException | IllegalStateException e) {
+                ctx.status(503).result(e.getMessage() == null ? "nicht verfügbar" : e.getMessage());
+            }
+        });
         // Export als Datei-Download (Clavia .pch2/.prf2). Dateiname vom Server
         // (Patch-/Perf-Name); ohne angeschlossenen G2 → 503.
         app.get("/api/patch/export", ctx -> serveExport(ctx, g2::exportPatch));

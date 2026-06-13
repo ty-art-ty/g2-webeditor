@@ -245,6 +245,10 @@ public final class MockG2Service implements G2Service {
         emit(Map.of("type", "banksChanged"));
     }
 
+    @Override public void storePatch(int bank, int entry) {
+        emit(Map.of("type", "banksChanged"));
+    }
+
     /** Mock-Global-Knobs: nur In-Memory-Liste + Broadcast. */
     private final List<Map<String, Object>> globalKnobs = new java.util.ArrayList<>();
 

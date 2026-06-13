@@ -71,6 +71,13 @@
     }
     #banks li:hover { background: var(--border); }
     #banks ul { padding-left: .6rem; margin: .3rem 0; }
+    #banks .storerow { display: flex; align-items: center; gap: .3rem; margin: 0 0 .5rem;
+      font-size: .72rem; color: var(--dim); }
+    #banks .storerow input { width: 3rem; background: #16181c; color: var(--text);
+      border: 1px solid var(--border); border-radius: 3px; font-size: .72rem; padding: .1rem .2rem; }
+    #banks .storerow button { margin-left: auto; border: 1px solid var(--border); border-radius: 3px;
+      background: none; color: var(--text); cursor: pointer; font-size: .72rem; padding: .12rem .5rem; }
+    #banks .storerow button:hover { border-color: var(--accent); }
 
     /* Performance-Panel (Name, Master-Clock, Slot-Flags/-Ranges) */
     #perfpanel { border: 1px solid var(--border); border-radius: 6px; padding: .5rem .6rem;
@@ -210,7 +217,13 @@
   <main>
     <nav id="banks">
       <div id="perfpanel" hidden></div>
-      <h2>Patches</h2><div id="banklist">loading…</div>
+      <h2>Patches</h2>
+      <div id="patchstore" class="storerow">
+        <span>Bank</span><input id="pstorebank" type="number" min="1" max="32" value="1">
+        <span>Slot</span><input id="pstoreslot" type="number" min="1" max="128" value="1">
+        <button id="pstorebtn" title="Store the active slot's patch to a patch-bank location (under its current name)">Store</button>
+      </div>
+      <div id="banklist">loading…</div>
       <h2 style="margin-top:.8rem">Performances</h2><div id="perflist">loading…</div>
     </nav>
     <section id="patch"></section>

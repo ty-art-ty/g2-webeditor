@@ -266,6 +266,20 @@ public final class G2LibService implements G2Service {
     }
 
     @Override
+    public void storePatch(int bank, int entry) {
+        // Gegenstück zu loadPatch: gleiche Argumentfolge + slotCode (= Slot-Ordinal
+        // A–D), Kommando O_STORE_ENTRY statt O_LOAD_ENTRY. Speichert den Patch des
+        // aktiven Slots unter seinem aktuellen Namen. Das Gerät bestätigt mit einer
+        // Entry-List-Message (isStoreResponse) → banks-Update → "banksChanged".
+        if (bank < 1 || entry < 1) throw new IllegalArgumentException(
+                "bank/entry 1-indexiert: " + bank + "/" + entry);
+        devices.runWithCurrent(d -> {
+            int slotCode = devices.getCurrentPerf().getSelectedSlot().ordinal();
+            d.getEntries().storeEntry(slotCode, bank - 1, entry - 1);
+        });
+    }
+
+    @Override
     public List<Map<String, Object>> getPerfBanks() {
         List<Map<String, Object>> out = new ArrayList<>();
         Map<Integer, Map<Integer, Entries.Entry>> perfBanks =
