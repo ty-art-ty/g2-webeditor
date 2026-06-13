@@ -13,7 +13,8 @@ TypeScript-Spiegel: `frontend/src/protocol.ts` — beide synchron halten.
 | `/api/patch/load` | POST | Body `{bank, slot}` → 202; neuer State kommt via WS |
 | `/api/patch/export` | GET | aktiver Slot als Clavia-`.pch2` (Datei-Download); ohne G2 → 503 |
 | `/api/perf/export` | GET | Performance als Clavia-`.prf2` (Datei-Download); ohne G2 → 503 |
-| `/api/patch/import` | POST | Roh-`.pch2` im Body → in den aktiven Slot laden; 202, neuer patchState via WS. Ungültige Datei → 400, ohne G2 → 503 |
+| `/api/patch/import` | POST | Roh-`.pch2` im Body (Name via `X-Filename`-Header) → in den aktiven Slot laden; 202, neuer patchState via WS. Ungültige Datei → 400, ohne G2 → 503 |
+| `/api/perf/import` | POST | Roh-`.prf2` im Body (Name via `X-Filename`-Header) → ganze Performance laden (alle 4 Slots); 202, neuer patchState via WS. Ungültige Datei → 400, ohne G2 → 503 |
 
 ## WebSocket Server → Client
 
@@ -178,8 +179,21 @@ ruft g2lib `Performance.readPatchFromFile(slot, path)` — das prüft Header+CRC
 (Fehler → 400), ersetzt das Slot-Patch-Objekt und schickt es per
 `Patch.sendPatch()` (Bulk) ans Gerät. Da das g2lib-loadPatch-Lifecycle dabei
 NICHT feuert, hängt der Server die Patch-Listener selbst neu an, verwirft den
-Undo-Verlauf und broadcastet den frischen `patchState`. Der `.prf2`-Import
-(ganze Performance) ist noch offen (eigener Teil).
+Undo-Verlauf und broadcastet den frischen `patchState`. Clavia leitet den
+Patch-Namen aus dem DATEINAMEN ab (nicht aus dem Datei-Inhalt) → der Client
+schickt ihn im `X-Filename`-Header (URL-encodiert), der Server legt die
+Temp-Datei entsprechend benannt an.
+
+**Import einer ganzen Performance** (v1, Teil 18): `POST /api/perf/import` mit
+Roh-`.prf2` lädt die GESAMTE Performance (alle 4 Slots + PerfSettings + Global
+Knobs). Server validiert vorab per `Performance.readFromFile` (Header/Parse →
+400) und ruft dann g2lib `Devices.loadFile(path, null)`: das macht
+`disposePerf` → `setCurrentPerf(readFromFile)` → Perf-Lifecycle-Notify (der
+Server hängt darüber alle Listener neu an + broadcastet patchState) →
+`Performance.sendPerf()` (Bulk ans Gerät). Die Vorab-Validierung ist nötig,
+weil `loadFile` Exceptions schluckt und sonst nach `disposePerf` ein
+disposed/null-`currentPerf` zurückbliebe. Der Perf-Name kommt — wie beim
+Patch-Import — aus dem `X-Filename`-Header (Clavia-Dateinamen-Konvention).
 
 **undo/redo** (v1): Serverseitiger Verlauf (max 100 Einträge, ein Stack für alle
 Clients) über alle Mutationen: moveModule (inkl. Kollisions-Pushes), addModule,

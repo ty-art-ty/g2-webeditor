@@ -190,10 +190,26 @@ public interface G2Service {
      * Validiert Header + CRC; danach wird der neue `patchState` gebroadcastet und
      * der Undo-Verlauf verworfen (der gehört zum alten Patch).
      *
+     * Der Patch-Name wird (Clavia-Konvention) aus {@code filename} abgeleitet.
+     *
      * @throws IllegalStateException ohne angeschlossenen G2
      * @throws RuntimeException bei ungültiger Datei (falscher Header / CRC-Fehler)
      */
-    void importPatch(byte[] data);
+    void importPatch(byte[] data, String filename);
+
+    /**
+     * Eine Clavia-`.prf2`-Datei als GESAMTE Performance importieren (ersetzt alle
+     * 4 Slots + Perf-Settings + Global Knobs) und auf das Gerät schicken (g2lib
+     * {@code Devices.loadFile} → {@code Performance.sendPerf}). Validiert die Datei
+     * vorab per Voll-Parse; danach wird die Live-Performance getauscht, alle
+     * Listener neu gebunden und `patchState` gebroadcastet.
+     *
+     * Der Perf-Name wird (Clavia-Konvention) aus {@code filename} abgeleitet.
+     *
+     * @throws IllegalStateException ohne angeschlossenen G2
+     * @throws RuntimeException bei ungültiger Datei (falscher Header / Parse-Fehler)
+     */
+    void importPerformance(byte[] data, String filename);
 
     /** Events vom G2 (Param-Änderungen am Gerät, Patch-Wechsel, Connect/Disconnect). */
     void onEvent(Consumer<Map<String, Object>> listener);

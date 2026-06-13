@@ -252,7 +252,11 @@ public final class MockG2Service implements G2Service {
         throw new UnsupportedOperationException("Export nur mit angeschlossenem G2");
     }
 
-    @Override public void importPatch(byte[] data) {
+    @Override public void importPatch(byte[] data, String filename) {
+        throw new UnsupportedOperationException("Import nur mit angeschlossenem G2");
+    }
+
+    @Override public void importPerformance(byte[] data, String filename) {
         throw new UnsupportedOperationException("Import nur mit angeschlossenem G2");
     }
 

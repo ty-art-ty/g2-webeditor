@@ -1003,32 +1003,42 @@ function esc(s: string): string {
 }
 
 /**
- * Import-Button (.pch2 → aktiver Slot): Datei wählen, roh per POST schicken.
- * Erfolg liefert 202, der neue patchState kommt via WS; Fehler (Header/CRC →
- * 400, kein G2 → 503) werden angezeigt.
+ * Import-Buttons: Datei wählen, roh per POST schicken. Erfolg liefert 202, der
+ * neue patchState kommt via WS; Fehler (Header/CRC/Parse → 400, kein G2 → 503)
+ * werden angezeigt. .pch2 → aktiver Slot, .prf2 → ganze Performance.
  */
 function wireImport() {
-  const btn = $('importbtn') as HTMLButtonElement;
-  const file = $('importfile') as HTMLInputElement;
-  btn.onclick = () => file.click();
-  file.onchange = async () => {
-    const f = file.files?.[0];
-    file.value = ''; // erlaubt erneutes Wählen derselben Datei
-    if (!f) return;
-    if (!confirm(`„${f.name}" in den aktiven Slot laden?`
-        + ' Der aktuelle Slot-Inhalt wird überschrieben.')) return;
-    try {
-      const res = await fetch('/api/patch/import', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/octet-stream' },
-        body: await f.arrayBuffer(),
-      });
-      if (!res.ok) alert(`Import fehlgeschlagen (${res.status}): ${await res.text()}`);
-      // Erfolg: neuer patchState kommt via WS
-    } catch (e) {
-      alert(`Import fehlgeschlagen: ${e}`);
-    }
+  const wire = (btnId: string, inputId: string, url: string, warn: string) => {
+    const btn = $(btnId) as HTMLButtonElement;
+    const file = $(inputId) as HTMLInputElement;
+    btn.onclick = () => file.click();
+    file.onchange = async () => {
+      const f = file.files?.[0];
+      file.value = ''; // erlaubt erneutes Wählen derselben Datei
+      if (!f) return;
+      if (!confirm(`„${f.name}" laden? ${warn}`)) return;
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/octet-stream',
+            // Clavia leitet den Patch-/Perf-Namen aus dem Dateinamen ab; Header
+            // muss ASCII sein → URL-encodiert, Server dekodiert.
+            'X-Filename': encodeURIComponent(f.name),
+          },
+          body: await f.arrayBuffer(),
+        });
+        if (!res.ok) alert(`Import fehlgeschlagen (${res.status}): ${await res.text()}`);
+        // Erfolg: neuer patchState kommt via WS
+      } catch (e) {
+        alert(`Import fehlgeschlagen: ${e}`);
+      }
+    };
   };
+  wire('importbtn', 'importfile', '/api/patch/import',
+    'Der aktuelle Slot-Inhalt wird überschrieben.');
+  wire('importperfbtn', 'importperffile', '/api/perf/import',
+    'Die GESAMTE Performance (alle 4 Slots) wird überschrieben.');
 }
 
 async function init() {

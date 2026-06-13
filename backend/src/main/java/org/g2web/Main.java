@@ -59,20 +59,11 @@ public final class Main {
         // (Patch-/Perf-Name); ohne angeschlossenen G2 → 503.
         app.get("/api/patch/export", ctx -> serveExport(ctx, g2::exportPatch));
         app.get("/api/perf/export", ctx -> serveExport(ctx, g2::exportPerformance));
-        // Import einer .pch2 in den aktiven Slot (Roh-Body). Ohne G2 → 503,
-        // ungültige Datei (Header/CRC) → 400; Erfolg → 202, patchState via WS.
-        app.post("/api/patch/import", ctx -> {
-            try {
-                g2.importPatch(ctx.bodyAsBytes());
-                ctx.status(202);
-            } catch (IllegalStateException | UnsupportedOperationException e) {
-                ctx.status(503).result(e.getMessage() == null ? "nicht verfügbar" : e.getMessage());
-            } catch (RuntimeException e) {
-                Throwable c = e.getCause() != null ? e.getCause() : e;
-                ctx.status(400).result("Import fehlgeschlagen: "
-                        + (c.getMessage() == null ? c.toString() : c.getMessage()));
-            }
-        });
+        // Import (Roh-Body). Ohne G2 → 503, ungültige Datei (Header/CRC/Parse) →
+        // 400; Erfolg → 202, neuer patchState via WS. .pch2 → aktiver Slot,
+        // .prf2 → ganze Performance.
+        app.post("/api/patch/import", ctx -> serveImport(ctx, g2::importPatch));
+        app.post("/api/perf/import", ctx -> serveImport(ctx, g2::importPerformance));
 
         // --- WebSocket: Echtzeit-Param-Sync ---
         app.ws("/ws", ws -> {
@@ -207,6 +198,28 @@ public final class Main {
                .result(f.data());
         } catch (UnsupportedOperationException | IllegalStateException e) {
             ctx.status(503).result(e.getMessage() == null ? "nicht verfügbar" : e.getMessage());
+        }
+    }
+
+    /**
+     * Roh-Body an einen Import-Consumer; der Dateiname (für den Patch-/Perf-Namen,
+     * Clavia-Konvention) kommt aus dem `X-Filename`-Header. Ohne G2 → 503,
+     * ungültige Datei → 400.
+     */
+    private static void serveImport(io.javalin.http.Context ctx,
+            java.util.function.BiConsumer<byte[], String> importer) {
+        try {
+            String fn = ctx.header("X-Filename");
+            if (fn != null) fn = java.net.URLDecoder.decode(fn,
+                    java.nio.charset.StandardCharsets.UTF_8);
+            importer.accept(ctx.bodyAsBytes(), fn);
+            ctx.status(202); // neuer patchState kommt via WS
+        } catch (UnsupportedOperationException | IllegalStateException e) {
+            ctx.status(503).result(e.getMessage() == null ? "nicht verfügbar" : e.getMessage());
+        } catch (RuntimeException e) {
+            Throwable c = e.getCause() != null ? e.getCause() : e;
+            ctx.status(400).result("Import fehlgeschlagen: "
+                    + (c.getMessage() == null ? c.toString() : c.getMessage()));
         }
     }
 

@@ -1,3 +1,54 @@
+# Phase 4b — Ergebnis Teil 18: .prf2-Import (ganze Performance) (2026-06-13)
+
+**Status: ✅ Import einer Clavia-`.prf2`-Datei als GESAMTE Performance (alle 4
+Slots + PerfSettings + Global Knobs) — am echten G2 verifiziert. Dabei den
+Namens-Bug aus Teil 17 mitgefixt (Patch-/Perf-Name aus Dateiname statt
+Temp-Name).**
+
+## Verifiziert am echten G2 (scripts/ws-perfimport-test.py)
+
+- Perf 'New Performance', Modul 1 'Clock' Param 'Rate' = 46; Performance
+  exportiert (12944 B), `renamePerf → 'Imp_New Performa'` + `setParam Rate → 0`,
+  dann die exportierte `.prf2` reimportiert → patchState zeigt Perf-Name wieder
+  **'New Performance'** UND Rate wieder **46**. Damit ist die ganze Performance
+  (Name + Slot-Inhalt) korrekt round-getrippt. **PASS.**
+- Negativtest: ungültige Bytes → `400`. Ohne G2 → `503`.
+- `.pch2`-Import (Teil 17) nach dem Namens-Fix erneut verifiziert: Patch
+  'HipHop beat box' bleibt nach Import korrekt benannt, Rate round-trippt.
+
+## Umsetzung
+
+- **Backend**: `G2Service.importPerformance(byte[], filename)` →
+  `Devices.loadFile(path, null)`: `disposePerf` → `setCurrentPerf(readFromFile)`
+  → Perf-Lifecycle-Notify (Server hängt alle Listener neu an + broadcastet
+  patchState) → `Performance.sendPerf()` (Bulk). **Vorab-Validierung** per
+  `Performance.readFromFile` (Header/Parse → 400), weil `loadFile` Exceptions
+  schluckt und sonst nach `disposePerf` ein disposed/null-`currentPerf`
+  zurückbliebe. `POST /api/perf/import`; Frontend-Button „⬆ .prf2".
+- **Namens-Fix (betrifft beide Importe):** Clavia leitet den Patch-/Perf-Namen
+  aus dem DATEINAMEN ab (nicht aus dem Datei-Inhalt). Der zufällige
+  `createTempFile`-Name landete dadurch als Name am Gerät (Log:
+  `truncating … g2import4442868…`). Jetzt schickt der Client den echten
+  Dateinamen im `X-Filename`-Header (URL-encodiert), der Server legt die
+  Temp-Datei als `<saneierter Name><ext>` in einer eigenen Temp-Dir an
+  (`importFromTempFile`). `importPatch`/`importPerformance` nehmen jetzt einen
+  `filename`-Parameter.
+
+## Stolpersteine
+
+- **Name aus Temp-Dateiname (s.o.)** — erst im `.prf2`-Test aufgefallen, weil
+  der Test den Perf-Namen prüft; der `.pch2`-Test aus Teil 17 hatte ihn nicht
+  geprüft und den latenten Bug übersehen. Beide Tests prüfen den Namen jetzt.
+- **G2-Reconnect-Falle** erneut: nach dem Deploy-Restart kein Connect, auch
+  nach mehreren `systemctl restart` nicht — Recovery wie gehabt (Service
+  stoppen → G2 aus/ein → starten, s. Memory `g2-pi-zugriff`).
+
+## Offen (→ Teil 19+)
+
+1. Restliche GraphFuncs, Morph-Mode-Toggle/-Labels.
+
+---
+
 # Phase 4b — Ergebnis Teil 17: .pch2-Import in den aktiven Slot (2026-06-13)
 
 **Status: ✅ Import einer Clavia-`.pch2`-Datei in den aktiven Slot — am echten

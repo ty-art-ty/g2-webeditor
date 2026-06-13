@@ -468,28 +468,77 @@ public final class G2LibService implements G2Service {
     }
 
     @Override
-    public void importPatch(byte[] data) {
+    public void importPatch(byte[] data, String filename) {
         if (!connected) throw new IllegalStateException("kein G2 verbunden");
         // Synchron (invoke), damit Header-/CRC-Fehler aus readPatchFromFile zum
         // Aufrufer (Endpoint → 400) propagieren statt im Executor verschluckt zu
-        // werden. g2lib liest aus einer Datei, daher Temp-Datei.
+        // werden.
         devices.invokeWithCurrentPerf(p -> {
-            java.nio.file.Path tmp = java.nio.file.Files.createTempFile("g2import", ".pch2");
-            try {
-                java.nio.file.Files.write(tmp, data);
-                // readPatchFromFile prüft Header+CRC, ersetzt den Slot-Patch und
+            importFromTempFile(data, filename, ".pch2", path -> {
+                // readPatchFromFile prüft Header+CRC, ersetzt den Slot-Patch,
+                // setzt den Patch-Namen aus dem DATEINAMEN (Clavia-Konvention) und
                 // sendet ihn ans Gerät (sendPatch). Ersetzt das Patch-Objekt →
-                // Listener neu anhängen + patchState broadcasten (wie der
-                // loadPatch-Lifecycle, der hier NICHT feuert).
-                Patch patch = p.readPatchFromFile(p.getSelectedSlot(), tmp.toString());
+                // Listener neu anhängen + patchState broadcasten (der
+                // loadPatch-Lifecycle feuert hier NICHT).
+                Patch patch = p.readPatchFromFile(p.getSelectedSlot(), path);
                 clearUndo();
                 attachPatchListeners(patch);
                 emit(patchStateOf(p));
-            } finally {
-                java.nio.file.Files.deleteIfExists(tmp);
-            }
+            });
             return null;
         });
+    }
+
+    @Override
+    public void importPerformance(byte[] data, String filename) {
+        if (!connected) throw new IllegalStateException("kein G2 verbunden");
+        devices.invokeWithCurrentPerf(p -> {
+            importFromTempFile(data, filename, ".prf2", path -> {
+                // VORAB voll parsen: devices.loadFile() macht erst disposePerf()
+                // und liesse bei einem Parse-Fehler currentPerf disposed/null
+                // zurück. readFromFile wirft bei falschem Header/kaputter Datei
+                // (→ 400), BEVOR irgendetwas am Live-Zustand verändert wird.
+                Performance.readFromFile(path, perfSender(p));
+                // Echte Übernahme: tauscht currentPerf, feuert den perfListener
+                // (attachListeners + patchState-Broadcast) und sendet ans Gerät.
+                devices.loadFile(path, null);
+            });
+            return null;
+        });
+    }
+
+    /**
+     * Roh-Bytes in eine Temp-Datei mit dem ECHTEN (saneierten) Dateinamen
+     * schreiben und den Pfad an die Aktion geben. Clavia leitet den Patch-/
+     * Perf-Namen aus dem Dateinamen ab — daher KEIN Zufallsname von
+     * createTempFile, sondern eine eigene Temp-Dir mit `<name><ext>`.
+     */
+    @FunctionalInterface
+    private interface ThrowingPathAction { void accept(String path) throws Exception; }
+
+    private static void importFromTempFile(byte[] data, String filename, String ext,
+            ThrowingPathAction action) throws Exception {
+        String fallback = ext.equals(".prf2") ? "Performance" : "Patch";
+        String base = safeName(stripExt(filename, ext), fallback);
+        java.nio.file.Path dir = java.nio.file.Files.createTempDirectory("g2imp");
+        java.nio.file.Path tmp = dir.resolve(base + ext);
+        try {
+            java.nio.file.Files.write(tmp, data);
+            action.accept(tmp.toString());
+        } finally {
+            java.nio.file.Files.deleteIfExists(tmp);
+            java.nio.file.Files.deleteIfExists(dir);
+        }
+    }
+
+    /** Pfad-/Endungsanteile vom Upload-Dateinamen entfernen. */
+    private static String stripExt(String filename, String ext) {
+        if (filename == null) return null;
+        String n = filename;
+        int slash = Math.max(n.lastIndexOf('/'), n.lastIndexOf('\\'));
+        if (slash >= 0) n = n.substring(slash + 1);
+        if (n.toLowerCase().endsWith(ext)) n = n.substring(0, n.length() - ext.length());
+        return n;
     }
 
     @Override
