@@ -1102,6 +1102,8 @@ function wireImport() {
     'Der aktuelle Slot-Inhalt wird überschrieben.');
   wire('importperfbtn', 'importperffile', '/api/perf/import',
     'Die GESAMTE Performance (alle 4 Slots) wird überschrieben.');
+  wire('importdx7btn', 'importdx7file', '/api/patch/import-dx7',
+    'Der DX7-Voice wird konvertiert und überschreibt den aktiven Slot.');
 }
 
 async function init() {

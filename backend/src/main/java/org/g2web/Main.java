@@ -64,6 +64,12 @@ public final class Main {
         // .prf2 → ganze Performance.
         app.post("/api/patch/import", ctx -> serveImport(ctx, g2::importPatch));
         app.post("/api/perf/import", ctx -> serveImport(ctx, g2::importPerformance));
+        // DX7-Voice (.syx) konvertieren (Clean-Room dx2g2) und in den aktiven Slot
+        // laden. Konvertierung ist hardware-unabhängig; das Laden geht (wie jeder
+        // Import) nur mit angeschlossenem G2 → sonst 503. Ungültiges Sysex → 400.
+        app.post("/api/patch/import-dx7", ctx -> serveDx7Import(ctx, g2));
+        // Reine Konvertierung als Download (.pch2) — funktioniert auch ohne G2.
+        app.post("/api/dx7/convert", Main::serveDx7Convert);
 
         // --- WebSocket: Echtzeit-Param-Sync ---
         app.ws("/ws", ws -> {
@@ -223,6 +229,47 @@ public final class Main {
             ctx.status(400).result("Import fehlgeschlagen: "
                     + (c.getMessage() == null ? c.toString() : c.getMessage()));
         }
+    }
+
+    /**
+     * .syx-Body → DX7-Voice parsen → nach .pch2 konvertieren → in den aktiven
+     * Slot importieren. Parsefehler → 400, kein G2 → 503.
+     */
+    private static void serveDx7Import(io.javalin.http.Context ctx, G2Service g2) {
+        try {
+            org.g2web.convert.Dx7Voice v =
+                    org.g2web.convert.Dx7Voice.parse(ctx.bodyAsBytes());
+            byte[] pch2 = org.g2web.convert.Dx2G2.toPch2(v);
+            g2.importPatch(pch2, safeFileName(v.name) + ".pch2");
+            ctx.status(202); // neuer patchState kommt via WS
+        } catch (UnsupportedOperationException | IllegalStateException e) {
+            ctx.status(503).result(e.getMessage() == null ? "nicht verfügbar" : e.getMessage());
+        } catch (Exception e) {
+            ctx.status(400).result("DX7-Import fehlgeschlagen: "
+                    + (e.getMessage() == null ? e.toString() : e.getMessage()));
+        }
+    }
+
+    /** .syx-Body → .pch2 konvertieren und als Datei-Download zurückgeben (ohne G2). */
+    private static void serveDx7Convert(io.javalin.http.Context ctx) {
+        try {
+            org.g2web.convert.Dx7Voice v =
+                    org.g2web.convert.Dx7Voice.parse(ctx.bodyAsBytes());
+            byte[] pch2 = org.g2web.convert.Dx2G2.toPch2(v);
+            ctx.contentType("application/octet-stream")
+               .header("Content-Disposition",
+                       "attachment; filename=\"" + safeFileName(v.name) + ".pch2\"")
+               .result(pch2);
+        } catch (Exception e) {
+            ctx.status(400).result("DX7-Konvertierung fehlgeschlagen: "
+                    + (e.getMessage() == null ? e.toString() : e.getMessage()));
+        }
+    }
+
+    /** Voice-Name → dateinamen-tauglich (ASCII, ohne Pfadtrenner). */
+    private static String safeFileName(String name) {
+        String s = (name == null ? "" : name).trim().replaceAll("[^A-Za-z0-9 ._-]", "_");
+        return s.isBlank() ? "DX7 Voice" : s;
     }
 
     private static G2Service createService() {

@@ -363,6 +363,24 @@ public class Patch {
         }
     }
 
+    /**
+     * g2web local patch: snapshot the live model (areas, params, settings) into
+     * the cached {@link #sections} map so that {@link #writeFile()} can serialize
+     * a patch that was assembled offline (no device round-trip to populate the
+     * map). Used by the offline converters (e.g. {@code org.g2web.convert.Dx2G2}).
+     * Re-apply after re-vendoring g2lib.
+     */
+    public void snapshotSections(int variationCount) {
+        for (Sections s : Sections.FILE_SECTIONS) {
+            // Only fill the section cache that writeFile() reads. Do NOT route
+            // this through updateSection(): that re-dispatches each section's
+            // values back into the live model (e.g. SModuleList -> addModules,
+            // SCableList -> addCables), which would re-add unnamed module copies
+            // and duplicate cables, corrupting the patch we just assembled.
+            sections.put(s, new Sections.Section(s, getSectionValues(s, variationCount)));
+        }
+    }
+
 
     /**
      * Read ahead+update section from byte buffer TYPE -> LENGTH -> [LOCATION] -> ...
