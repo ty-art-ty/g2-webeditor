@@ -1,3 +1,56 @@
+# Phase 4b — Ergebnis Teil 17: .pch2-Import in den aktiven Slot (2026-06-13)
+
+**Status: ✅ Import einer Clavia-`.pch2`-Datei in den aktiven Slot — am echten
+G2 verifiziert (Round-Trip + Negativtest).** Der `.prf2`-Import (ganze
+Performance) bleibt offen (eigener Teil, deutlich invasiver).
+
+## Verifiziert am echten G2 (scripts/ws-import-test.py)
+
+- Slot A, Modul 1 'Clock', Param 0 'Rate' = 46; aktuellen Patch exportiert
+  (5562 B, trägt 46), `setParam Rate → 0` (paramChanged ok), die exportierte
+  Datei importiert → patchState zeigt Rate wieder **46**. Damit ist bewiesen,
+  dass der Import den Dateiinhalt tatsächlich aufs Gerät lädt (nicht nur das
+  lokale Modell). **PASS.**
+- Negativtest: ungültige Bytes → `400` (Header-/CRC-Prüfung greift).
+- Ohne G2 → `503` (Pfad-Guard).
+
+## Umsetzung
+
+- **Backend**: `G2Service.importPatch(byte[])` →
+  `Performance.readPatchFromFile(getSelectedSlot(), tmpPfad)`: g2lib prüft
+  Header+CRC, ersetzt das Slot-Patch-Objekt und schickt es per
+  `Patch.sendPatch()` (Bulk) ans Gerät. Da das g2lib-loadPatch-Lifecycle dabei
+  NICHT feuert (kein vom Gerät getriggerter Reload), hängt der Service danach
+  selbst `attachPatchListeners` an, `clearUndo()` und broadcastet
+  `patchStateOf`. Lauf über `invokeWithCurrentPerf` (SYNCHRON), damit
+  Header-/CRC-Fehler nicht im Executor verschluckt werden, sondern zum Endpoint
+  (→ 400) propagieren. g2lib liest aus einer Datei → Roh-Bytes landen in einer
+  Temp-Datei (wird im finally gelöscht). Mock wirft.
+- **REST**: `POST /api/patch/import` (Roh-`.pch2`-Body): `IllegalState`/
+  `Unsupported` → 503, sonstige RuntimeException (ungültige Datei) → 400, sonst
+  202 (neuer patchState via WS).
+- **Frontend**: Header-Button „⬆ .pch2" + verstecktes File-Input; Datei als
+  ArrayBuffer per `fetch` POST, Bestätigungs-Dialog (überschreibt den Slot),
+  Fehler via `alert`.
+
+## Stolpersteine
+
+- `runWithCurrentPerf` läuft async und VERSCHLUCKT Exceptions (nur Log) → für
+  Validierungs-Feedback ungeeignet; `invokeWithCurrentPerf` (synchron,
+  propagiert) ist der richtige Weg (wie beim Export).
+- Nach `readPatchFromFile` ist das alte Slot-Patch-Objekt ersetzt — ohne
+  erneutes `attachPatchListeners` + Broadcast bliebe das UI auf dem alten
+  Patch (dieselbe Objekt-Ersetzungs-Falle wie bei den Settings in Teil 14).
+
+## Offen (→ Teil 18+)
+
+1. `.prf2`-Import (ganze Performance ersetzen) — invasiver: die Live-
+   `Performance` im `Device` müsste getauscht und alle Listener neu gebunden
+   werden; kein fertiger g2lib-Helfer wie `readPatchFromFile`.
+2. Restliche GraphFuncs, Morph-Mode-Toggle/-Labels.
+
+---
+
 # Phase 4b — Ergebnis Teil 16: Patch-/Performance-Export (.pch2/.prf2) (2026-06-13)
 
 **Status: ✅ Export des aktiven Slots (.pch2) und der Performance (.prf2) als

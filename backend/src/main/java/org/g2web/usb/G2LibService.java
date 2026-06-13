@@ -468,6 +468,31 @@ public final class G2LibService implements G2Service {
     }
 
     @Override
+    public void importPatch(byte[] data) {
+        if (!connected) throw new IllegalStateException("kein G2 verbunden");
+        // Synchron (invoke), damit Header-/CRC-Fehler aus readPatchFromFile zum
+        // Aufrufer (Endpoint → 400) propagieren statt im Executor verschluckt zu
+        // werden. g2lib liest aus einer Datei, daher Temp-Datei.
+        devices.invokeWithCurrentPerf(p -> {
+            java.nio.file.Path tmp = java.nio.file.Files.createTempFile("g2import", ".pch2");
+            try {
+                java.nio.file.Files.write(tmp, data);
+                // readPatchFromFile prüft Header+CRC, ersetzt den Slot-Patch und
+                // sendet ihn ans Gerät (sendPatch). Ersetzt das Patch-Objekt →
+                // Listener neu anhängen + patchState broadcasten (wie der
+                // loadPatch-Lifecycle, der hier NICHT feuert).
+                Patch patch = p.readPatchFromFile(p.getSelectedSlot(), tmp.toString());
+                clearUndo();
+                attachPatchListeners(patch);
+                emit(patchStateOf(p));
+            } finally {
+                java.nio.file.Files.deleteIfExists(tmp);
+            }
+            return null;
+        });
+    }
+
+    @Override
     public void undo() {
         devices.runWithCurrentPerf(p -> {
             UndoEntry e;

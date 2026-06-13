@@ -184,6 +184,17 @@ public interface G2Service {
      */
     ExportFile exportPerformance();
 
+    /**
+     * Eine Clavia-`.pch2`-Datei in den aktiven Slot importieren und auf das Gerät
+     * schicken (g2lib {@code Performance.readPatchFromFile} → {@code sendPatch}).
+     * Validiert Header + CRC; danach wird der neue `patchState` gebroadcastet und
+     * der Undo-Verlauf verworfen (der gehört zum alten Patch).
+     *
+     * @throws IllegalStateException ohne angeschlossenen G2
+     * @throws RuntimeException bei ungültiger Datei (falscher Header / CRC-Fehler)
+     */
+    void importPatch(byte[] data);
+
     /** Events vom G2 (Param-Änderungen am Gerät, Patch-Wechsel, Connect/Disconnect). */
     void onEvent(Consumer<Map<String, Object>> listener);
 }

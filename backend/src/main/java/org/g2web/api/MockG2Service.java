@@ -252,6 +252,10 @@ public final class MockG2Service implements G2Service {
         throw new UnsupportedOperationException("Export nur mit angeschlossenem G2");
     }
 
+    @Override public void importPatch(byte[] data) {
+        throw new UnsupportedOperationException("Import nur mit angeschlossenem G2");
+    }
+
     @Override public void onEvent(Consumer<Map<String, Object>> l) { listeners.add(l); }
 
     private void emit(Map<String, Object> event) { listeners.forEach(l -> l.accept(event)); }

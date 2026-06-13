@@ -59,6 +59,20 @@ public final class Main {
         // (Patch-/Perf-Name); ohne angeschlossenen G2 → 503.
         app.get("/api/patch/export", ctx -> serveExport(ctx, g2::exportPatch));
         app.get("/api/perf/export", ctx -> serveExport(ctx, g2::exportPerformance));
+        // Import einer .pch2 in den aktiven Slot (Roh-Body). Ohne G2 → 503,
+        // ungültige Datei (Header/CRC) → 400; Erfolg → 202, patchState via WS.
+        app.post("/api/patch/import", ctx -> {
+            try {
+                g2.importPatch(ctx.bodyAsBytes());
+                ctx.status(202);
+            } catch (IllegalStateException | UnsupportedOperationException e) {
+                ctx.status(503).result(e.getMessage() == null ? "nicht verfügbar" : e.getMessage());
+            } catch (RuntimeException e) {
+                Throwable c = e.getCause() != null ? e.getCause() : e;
+                ctx.status(400).result("Import fehlgeschlagen: "
+                        + (c.getMessage() == null ? c.toString() : c.getMessage()));
+            }
+        });
 
         // --- WebSocket: Echtzeit-Param-Sync ---
         app.ws("/ws", ws -> {

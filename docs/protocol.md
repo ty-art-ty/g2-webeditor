@@ -13,6 +13,7 @@ TypeScript-Spiegel: `frontend/src/protocol.ts` — beide synchron halten.
 | `/api/patch/load` | POST | Body `{bank, slot}` → 202; neuer State kommt via WS |
 | `/api/patch/export` | GET | aktiver Slot als Clavia-`.pch2` (Datei-Download); ohne G2 → 503 |
 | `/api/perf/export` | GET | Performance als Clavia-`.prf2` (Datei-Download); ohne G2 → 503 |
+| `/api/patch/import` | POST | Roh-`.pch2` im Body → in den aktiven Slot laden; 202, neuer patchState via WS. Ungültige Datei → 400, ohne G2 → 503 |
 
 ## WebSocket Server → Client
 
@@ -170,6 +171,15 @@ Clavia-Textheader (`Version=Nord Modular G2 File Format 1\r\nType=Patch|Performa
 `0x17 <version>`, die File-Sektionen (Patch: `FILE_SECTIONS`; Perf: PerfSettings
 + 4 Slot-Patches je `FILE_VARIATIONS` + Global Knobs) und 2 Byte CRC16/CCITT
 (Init 0x0000, big-endian) über alles ab Offset hinter dem Header.
+
+**Import** (v1, Teil 17): `POST /api/patch/import` mit Roh-`.pch2` im Body lädt
+die Datei in den AKTIVEN Slot. Server schreibt die Bytes in eine Temp-Datei und
+ruft g2lib `Performance.readPatchFromFile(slot, path)` — das prüft Header+CRC
+(Fehler → 400), ersetzt das Slot-Patch-Objekt und schickt es per
+`Patch.sendPatch()` (Bulk) ans Gerät. Da das g2lib-loadPatch-Lifecycle dabei
+NICHT feuert, hängt der Server die Patch-Listener selbst neu an, verwirft den
+Undo-Verlauf und broadcastet den frischen `patchState`. Der `.prf2`-Import
+(ganze Performance) ist noch offen (eigener Teil).
 
 **undo/redo** (v1): Serverseitiger Verlauf (max 100 Einträge, ein Stack für alle
 Clients) über alle Mutationen: moveModule (inkl. Kollisions-Pushes), addModule,

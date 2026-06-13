@@ -1002,9 +1002,39 @@ function esc(s: string): string {
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 }
 
+/**
+ * Import-Button (.pch2 → aktiver Slot): Datei wählen, roh per POST schicken.
+ * Erfolg liefert 202, der neue patchState kommt via WS; Fehler (Header/CRC →
+ * 400, kein G2 → 503) werden angezeigt.
+ */
+function wireImport() {
+  const btn = $('importbtn') as HTMLButtonElement;
+  const file = $('importfile') as HTMLInputElement;
+  btn.onclick = () => file.click();
+  file.onchange = async () => {
+    const f = file.files?.[0];
+    file.value = ''; // erlaubt erneutes Wählen derselben Datei
+    if (!f) return;
+    if (!confirm(`„${f.name}" in den aktiven Slot laden?`
+        + ' Der aktuelle Slot-Inhalt wird überschrieben.')) return;
+    try {
+      const res = await fetch('/api/patch/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/octet-stream' },
+        body: await f.arrayBuffer(),
+      });
+      if (!res.ok) alert(`Import fehlgeschlagen (${res.status}): ${await res.text()}`);
+      // Erfolg: neuer patchState kommt via WS
+    } catch (e) {
+      alert(`Import fehlgeschlagen: ${e}`);
+    }
+  };
+}
+
 async function init() {
   undoBtn.onclick = () => send({ type: 'undo' });
   redoBtn.onclick = () => send({ type: 'redo' });
+  wireImport();
   try {
     setTables(await (await fetch('/param-tables.json')).json());
   } catch {

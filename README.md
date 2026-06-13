@@ -26,9 +26,9 @@ patch settings (gain/glide/bend/vibrato/arpeggiator) and morph assignments;
 live LED/VU meters and env/filter graph curves streamed from the device;
 performance mode (master clock, slot enable/keyboard/hold, key splits, perf
 browser); global knob assignments and storing a performance to a perf bank;
-patch/performance export as Clavia .pch2/.prf2 files; multi-client via
-WebSocket broadcast. Still open: file import (.pch2/.prf2 load), remaining
-graph funcs, morph mode toggle/labels.
+patch/performance export as Clavia .pch2/.prf2 files and importing a .pch2 file
+into the active slot; multi-client via WebSocket broadcast. Still open: .prf2
+performance import, remaining graph funcs, morph mode toggle/labels.
 Details: `docs/phase*-ergebnis.md` (German).
 
 ### Layout
@@ -98,9 +98,9 @@ live vom Gerät (gebündeltes `visuals`-Streaming) und Env-/Filter-Graph-Kurven
 (ADSR/ADDSR/ADR/AHD/Multi/D/H, FltClassic); Performance-Mode (Master-Clock,
 Slot-Enable/Keyboard/Hold, Key-Splits, Perf-Name/-Browser); Global-Knob-
 Zuweisungen und Performance in eine Perf-Bank speichern; Patch-/Performance-
-Export als Clavia-`.pch2`/`.prf2`-Dateien; Multi-Client via WebSocket-Broadcast.
-Offen: Datei-Import (.pch2/.prf2 laden), restliche GraphFuncs,
-Morph-Mode-Toggle/-Labels.
+Export als Clavia-`.pch2`/`.prf2`-Dateien und Import einer `.pch2` in den
+aktiven Slot; Multi-Client via WebSocket-Broadcast. Offen: `.prf2`-Import (ganze
+Performance), restliche GraphFuncs, Morph-Mode-Toggle/-Labels.
 Details: `docs/phase*-ergebnis.md`.
 
 ### Struktur
