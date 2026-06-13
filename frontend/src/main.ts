@@ -208,7 +208,7 @@ function handle(msg: ServerMessage) {
       refreshPatch(); // Werte der neuen Variation holen
       break;
     case 'connection':
-      setConn(msg.connected, msg.connected ? 'G2 verbunden' : 'G2 getrennt');
+      setConn(msg.connected, msg.connected ? 'G2 connected' : 'G2 disconnected');
       break;
     case 'perfSettingsChanged':
       if (currentPatch) currentPatch.perfSettings = msg;
@@ -401,8 +401,8 @@ function applySelection() {
     if (m) renderParamPanel(m);
   } else {
     paramsBodyEl.className = 'hint';
-    paramsBodyEl.textContent = `${selected.ids.length} Module ausgewählt — `
-      + 'Drag verschiebt, ⌘C/⌘V kopiert (inkl. interner Kabel), Entf löscht';
+    paramsBodyEl.textContent = `${selected.ids.length} modules selected — `
+      + 'drag to move, ⌘C/⌘V to copy (incl. internal cables), Del to delete';
   }
 }
 
@@ -478,7 +478,7 @@ function renderParamPanel(m: Module) {
   if (!m.params.length) {
     const p = document.createElement('div');
     p.className = 'hint';
-    p.textContent = 'keine Parameter';
+    p.textContent = 'no parameters';
     div.appendChild(p);
   }
   for (const param of m.params) {
@@ -522,7 +522,7 @@ function globalKnobRow(m: Module, paramId: number): HTMLElement {
   let html = '<option value="-1">–</option>';
   for (let page = 0; page < 5; page++) {
     for (let rowIx = 0; rowIx < 3; rowIx++) {
-      html += `<optgroup label="Seite ${page + 1}${'ABC'[rowIx]}">`;
+      html += `<optgroup label="Page ${page + 1}${'ABC'[rowIx]}">`;
       for (let k = 0; k < 8; k++) {
         const ix = page * 24 + rowIx * 8 + k;
         const used = knobs.find((g) => g.knob === ix);
@@ -535,7 +535,7 @@ function globalKnobRow(m: Module, paramId: number): HTMLElement {
   }
   sel.innerHTML = html;
   sel.value = String(cur?.knob ?? -1);
-  sel.title = 'Global Knob (perf-weit; belegte Knobs werden überschrieben)';
+  sel.title = 'Global knob (performance-wide; assigned knobs get overwritten)';
   sel.onchange = () => {
     const knob = Number(sel.value);
     if (knob < 0) {
@@ -604,8 +604,8 @@ function addModuleControl(area: Area): HTMLElement {
   div.className = 'addmod';
   const input = document.createElement('input');
   input.setAttribute('list', 'modtypes');
-  input.placeholder = '+ Modul…';
-  input.title = 'Modultyp eintippen/wählen, Enter oder + drückt an';
+  input.placeholder = '+ Module…';
+  input.title = 'Type/pick a module type, Enter or + adds it';
   const add = () => {
     const typeName = input.value.trim();
     if (!moduleDefs[typeName] || !currentPatch) return;
@@ -649,12 +649,12 @@ function applyZoom() {
 
 // Sprechende Labels für die Undo-Tooltips (Server schickt die Methodennamen)
 const UNDO_LABELS: Record<string, string> = {
-  moveModule: 'Modul verschieben', moveModules: 'Selektion verschieben',
-  addModule: 'Modul anlegen', deleteModule: 'Modul löschen',
-  deleteModules: 'Selektion löschen', copyModule: 'Modul kopieren',
-  copySelection: 'Selektion kopieren', addCable: 'Kabel anlegen',
-  deleteCable: 'Kabel löschen', renameModule: 'Modul umbenennen',
-  setModuleColor: 'Modulfarbe ändern', setMorph: 'Morph-Zuweisung',
+  moveModule: 'Move module', moveModules: 'Move selection',
+  addModule: 'Add module', deleteModule: 'Delete module',
+  deleteModules: 'Delete selection', copyModule: 'Copy module',
+  copySelection: 'Copy selection', addCable: 'Add cable',
+  deleteCable: 'Delete cable', renameModule: 'Rename module',
+  setModuleColor: 'Change module color', setMorph: 'Morph assignment',
 };
 
 function renderUndoState(u: UndoInfo) {
@@ -662,11 +662,11 @@ function renderUndoState(u: UndoInfo) {
   undoBtn.disabled = !u.undoDepth;
   redoBtn.disabled = !u.redoDepth;
   undoBtn.title = u.undoDepth
-    ? `Rückgängig: ${label(u.undoLabel)} (${u.undoDepth}) — ⌘Z`
-    : 'Rückgängig (⌘Z)';
+    ? `Undo: ${label(u.undoLabel)} (${u.undoDepth}) — ⌘Z`
+    : 'Undo (⌘Z)';
   redoBtn.title = u.redoDepth
-    ? `Wiederholen: ${label(u.redoLabel)} (${u.redoDepth}) — ⇧⌘Z`
-    : 'Wiederholen (⇧⌘Z)';
+    ? `Redo: ${label(u.redoLabel)} (${u.redoDepth}) — ⇧⌘Z`
+    : 'Redo (⇧⌘Z)';
 }
 
 /** Slider-Zeile (Label + range-Input + Wert) für Settings-Params. */
@@ -730,7 +730,7 @@ function morphGroupBlock(g: MorphGroup): HTMLElement {
   lbl.className = 'mlabel';
   lbl.value = g.label;
   lbl.maxLength = 7;
-  lbl.title = 'Morph-Label (Enter speichert, max 7 Zeichen)';
+  lbl.title = 'Morph label (Enter saves, max 7 characters)';
   const sendLbl = () => {
     const v = lbl.value.trim();
     if (v && v !== g.label) send({ type: 'renameMorph', morph: g.morph, label: v });
@@ -741,7 +741,7 @@ function morphGroupBlock(g: MorphGroup): HTMLElement {
   // Mode-Toggle Knob/Morph
   const mode = document.createElement('select');
   mode.className = 'mmode';
-  mode.title = 'Morph-Mode (Knob = manuell, Morph = via Morph-Quelle)';
+  mode.title = 'Morph mode (Knob = manual, Morph = via morph source)';
   MORPH_MODES.forEach((m, ix) => {
     const o = document.createElement('option');
     o.value = String(ix); o.textContent = m;
@@ -778,14 +778,14 @@ function morphGroupBlock(g: MorphGroup): HTMLElement {
 function renderSettingsPanel() {
   if (!currentPatch?.settings) {
     paramsBodyEl.className = 'hint';
-    paramsBodyEl.textContent = 'Modul anklicken';
+    paramsBodyEl.textContent = 'Click a module';
     return;
   }
   paramsBodyEl.className = '';
   paramsBodyEl.innerHTML = '';
   const div = document.createElement('div');
   div.className = 'module';
-  div.innerHTML = '<h3><span class="type">Patch-Settings</span></h3>';
+  div.innerHTML = '<h3><span class="type">Patch settings</span></h3>';
   if (currentPatch.morphs) {
     const h = document.createElement('h4');
     h.textContent = `Morphs (Variation ${currentVariation + 1})`;
@@ -835,7 +835,7 @@ function renderPerfPanel(ps: PerfSettings | undefined) {
   name.className = 'pname';
   name.value = ps.name;
   name.maxLength = 16;
-  name.title = 'Performance-Name (Enter speichert)';
+  name.title = 'Performance name (Enter saves)';
   const sendName = () => {
     if (name.value !== ps.name && name.value.trim()) {
       send({ type: 'renamePerf', name: name.value.trim() });
@@ -866,22 +866,22 @@ function renderPerfPanel(ps: PerfSettings | undefined) {
   splitCb.onchange = () =>
     send({ type: 'setKeyboardRangeEnabled', enabled: splitCb.checked });
   const splitLabel = document.createElement('label');
-  splitLabel.htmlFor = 'kbsplit'; splitLabel.textContent = 'Keyboard-Split (Ranges)';
+  splitLabel.htmlFor = 'kbsplit'; splitLabel.textContent = 'Keyboard split (ranges)';
   split.append(splitCb, splitLabel);
   perfPanelEl.appendChild(split);
 
   // Slot-Tabelle: Enable / Keyboard / Hold / Range from–to
   const table = document.createElement('table');
-  table.innerHTML = '<tr><th></th><th title="Slot aktiv">On</th>'
-    + '<th title="Keyboard an diesen Slot (mehrere = Layer)">Kbd</th>'
-    + '<th title="Hold">Hold</th><th>von</th><th>bis</th></tr>';
+  table.innerHTML = '<tr><th></th><th title="Slot active">On</th>'
+    + '<th title="Keyboard to this slot (multiple = layer)">Kbd</th>'
+    + '<th title="Hold">Hold</th><th>from</th><th>to</th></tr>';
   ps.slots.forEach((s, ix) => {
     const tr = document.createElement('tr');
     const sl = document.createElement('td');
     sl.className = 'sl'; sl.textContent = s.slot;
     if (currentPatch?.slot === s.slot) sl.style.color = 'var(--accent)';
     sl.style.cursor = 'pointer';
-    sl.title = `Slot ${s.slot} anzeigen`;
+    sl.title = `Show slot ${s.slot}`;
     sl.onclick = () => send({ type: 'selectSlot', slot: ix });
     tr.appendChild(sl);
     for (const key of ['enabled', 'keyboard', 'hold'] as const) {
@@ -922,7 +922,7 @@ function renderPerfPanel(ps: PerfSettings | undefined) {
   if (!knobs.length) {
     const hint = document.createElement('div');
     hint.className = 'hint';
-    hint.textContent = 'keine Zuweisungen — im Param-Panel unter „G-Knob" zuweisen';
+    hint.textContent = 'no assignments — assign in the param panel under "G-Knob"';
     gk.appendChild(hint);
   } else {
     const ul = document.createElement('ul');
@@ -932,7 +932,7 @@ function renderPerfPanel(ps: PerfSettings | undefined) {
       li.textContent = `${knobName(k.knob)}  ${k.slot}/${k.area} ${name}`;
       const del = document.createElement('button');
       del.textContent = '✕';
-      del.title = `Global Knob ${knobName(k.knob)} lösen`;
+      del.title = `Release global knob ${knobName(k.knob)}`;
       del.onclick = () => send({ type: 'deassignGlobalKnob', knob: k.knob });
       li.appendChild(del);
       ul.appendChild(li);
@@ -946,22 +946,22 @@ function renderPerfPanel(ps: PerfSettings | undefined) {
   store.className = 'row';
   const sBank = document.createElement('input');
   sBank.type = 'number'; sBank.min = '1'; sBank.max = '8'; sBank.value = '1';
-  sBank.title = 'Perf-Bank (1–8)';
+  sBank.title = 'Perf bank (1–8)';
   const sSlot = document.createElement('input');
   sSlot.type = 'number'; sSlot.min = '1'; sSlot.max = '32'; sSlot.value = '1';
-  sSlot.title = 'Platz in der Bank (1–32)';
+  sSlot.title = 'Slot in the bank (1–32)';
   const sBtn = document.createElement('button');
-  sBtn.textContent = 'Speichern';
-  sBtn.title = 'Performance in den Bank-Platz speichern (unter aktuellem Namen)';
+  sBtn.textContent = 'Store';
+  sBtn.title = 'Store performance to the bank slot (under the current name)';
   sBtn.onclick = () => {
     const bank = Number(sBank.value), slot = Number(sSlot.value);
     if (!bank || !slot) return;
-    if (!confirm(`Performance „${ps.name}" in Bank ${bank}, Platz ${slot} speichern?`
-        + ' Ein vorhandener Eintrag wird überschrieben.')) return;
+    if (!confirm(`Store performance "${ps.name}" to bank ${bank}, slot ${slot}?`
+        + ' An existing entry will be overwritten.')) return;
     send({ type: 'storePerf', bank, slot });
     // Bestätigung kommt als banksChanged → Perf-Liste lädt neu
   };
-  store.append('Bank', sBank, 'Platz', sSlot, sBtn);
+  store.append('Bank', sBank, 'Slot', sSlot, sBtn);
   perfPanelEl.appendChild(store);
 }
 
@@ -969,7 +969,7 @@ async function loadPerfBanks() {
   try {
     const banks: Bank[] = await (await fetch('/api/perfbanks')).json();
     perfListEl.innerHTML = '';
-    if (!banks.length) { perfListEl.textContent = 'keine Perf-Banks'; return; }
+    if (!banks.length) { perfListEl.textContent = 'no perf banks'; return; }
     banks.sort((a, b) => a.bank - b.bank).forEach((bank) => {
       const det = document.createElement('details');
       const sum = document.createElement('summary');
@@ -979,7 +979,7 @@ async function loadPerfBanks() {
       bank.patches.sort((a, b) => a.slot - b.slot).forEach((p) => {
         const li = document.createElement('li');
         li.textContent = `${p.slot} ${p.name}`;
-        li.title = `Performance „${p.name}" laden (ersetzt alle 4 Slots!)`;
+        li.title = `Load performance "${p.name}" (replaces all 4 slots!)`;
         li.onclick = () => {
           selected = null;
           clipboard = null;
@@ -992,7 +992,7 @@ async function loadPerfBanks() {
       perfListEl.appendChild(det);
     });
   } catch {
-    perfListEl.textContent = 'Perf-Banks nicht ladbar';
+    perfListEl.textContent = 'Perf banks could not load';
   }
 }
 
@@ -1027,7 +1027,7 @@ async function loadBanks() {
   try {
     const banks: Bank[] = await (await fetch('/api/banks')).json();
     bankListEl.innerHTML = '';
-    if (!banks.length) { bankListEl.textContent = 'keine Banks'; return; }
+    if (!banks.length) { bankListEl.textContent = 'no banks'; return; }
     banks.sort((a, b) => a.bank - b.bank).forEach((bank) => {
       const det = document.createElement('details');
       if (bank.bank === 1) det.open = true;
@@ -1046,7 +1046,7 @@ async function loadBanks() {
       bankListEl.appendChild(det);
     });
   } catch {
-    bankListEl.textContent = 'Banks nicht ladbar';
+    bankListEl.textContent = 'Banks could not load';
   }
 }
 
@@ -1079,7 +1079,7 @@ function wireImport() {
       const f = file.files?.[0];
       file.value = ''; // erlaubt erneutes Wählen derselben Datei
       if (!f) return;
-      if (!confirm(`„${f.name}" laden? ${warn}`)) return;
+      if (!confirm(`Load "${f.name}"? ${warn}`)) return;
       try {
         const res = await fetch(url, {
           method: 'POST',
@@ -1091,19 +1091,19 @@ function wireImport() {
           },
           body: await f.arrayBuffer(),
         });
-        if (!res.ok) alert(`Import fehlgeschlagen (${res.status}): ${await res.text()}`);
+        if (!res.ok) alert(`Import failed (${res.status}): ${await res.text()}`);
         // Erfolg: neuer patchState kommt via WS
       } catch (e) {
-        alert(`Import fehlgeschlagen: ${e}`);
+        alert(`Import failed: ${e}`);
       }
     };
   };
   wire('importbtn', 'importfile', '/api/patch/import',
-    'Der aktuelle Slot-Inhalt wird überschrieben.');
+    'The current slot content will be overwritten.');
   wire('importperfbtn', 'importperffile', '/api/perf/import',
-    'Die GESAMTE Performance (alle 4 Slots) wird überschrieben.');
+    'The ENTIRE performance (all 4 slots) will be overwritten.');
   wire('importdx7btn', 'importdx7file', '/api/patch/import-dx7',
-    'Der DX7-Voice wird konvertiert und überschreibt den aktiven Slot.');
+    'The DX7 voice will be converted and overwrite the active slot.');
 }
 
 async function init() {
@@ -1113,7 +1113,7 @@ async function init() {
   try {
     setTables(await (await fetch('/param-tables.json')).json());
   } catch {
-    console.warn('param-tables.json nicht ladbar — TextFunc-Anzeigen zeigen Rohwerte');
+    console.warn('param-tables.json could not load — TextFunc displays show raw values');
   }
   try {
     moduleDefs = await (await fetch('/module-defs.json')).json();
@@ -1127,7 +1127,7 @@ async function init() {
     }
     document.body.appendChild(dl);
   } catch {
-    console.warn('module-defs.json nicht ladbar — Module ohne Geometrie');
+    console.warn('module-defs.json could not load — modules without geometry');
   }
   connect();
   loadBanks();

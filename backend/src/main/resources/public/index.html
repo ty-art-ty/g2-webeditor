@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="de">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -179,24 +179,26 @@
     .param span { text-align: right; font-variant-numeric: tabular-nums; }
     input[type=range] { width: 100%; accent-color: var(--accent); }
   </style>
-  <script type="module" crossorigin src="/assets/index-DiumbydN.js"></script>
+  <script type="module" crossorigin src="/assets/index-igqgRX49.js"></script>
 </head>
 <body>
   <header>
     <h1>G2 <span id="patchname">—</span></h1>
     <span id="perfinfo" style="font-size:.8rem;color:var(--dim)"></span>
-    <span id="conn" class="bad">verbinde…</span>
+    <span id="conn" class="bad">connecting…</span>
     <div id="undoredo">
-      <button id="undobtn" title="Rückgängig (⌘Z)" disabled>↶</button>
-      <button id="redobtn" title="Wiederholen (⇧⌘Z)" disabled>↷</button>
+      <button id="undobtn" title="Undo (⌘Z)" disabled>↶</button>
+      <button id="redobtn" title="Redo (⇧⌘Z)" disabled>↷</button>
     </div>
     <div id="export">
-      <a href="/api/patch/export" download title="Aktiven Slot als Clavia-Patch (.pch2) herunterladen">⬇&nbsp;.pch2</a>
-      <a href="/api/perf/export" download title="Performance als Clavia-Datei (.prf2) herunterladen">⬇&nbsp;.prf2</a>
-      <button id="importbtn" title="Eine Clavia-.pch2-Datei in den aktiven Slot laden (überschreibt den Slot)">⬆&nbsp;.pch2</button>
+      <a href="/api/patch/export" download title="Download active slot as a Clavia patch (.pch2)">⬇&nbsp;.pch2</a>
+      <a href="/api/perf/export" download title="Download performance as a Clavia file (.prf2)">⬇&nbsp;.prf2</a>
+      <button id="importbtn" title="Load a Clavia .pch2 file into the active slot (overwrites the slot)">⬆&nbsp;.pch2</button>
       <input id="importfile" type="file" accept=".pch2" hidden>
-      <button id="importperfbtn" title="Eine Clavia-.prf2-Datei als ganze Performance laden (überschreibt alle 4 Slots)">⬆&nbsp;.prf2</button>
+      <button id="importperfbtn" title="Load a Clavia .prf2 file as a whole performance (overwrites all 4 slots)">⬆&nbsp;.prf2</button>
       <input id="importperffile" type="file" accept=".prf2" hidden>
+      <button id="importdx7btn" title="Convert a Yamaha DX7 voice (.syx) and load it into the active slot (overwrites the slot)">⬆&nbsp;.syx</button>
+      <input id="importdx7file" type="file" accept=".syx,.bin" hidden>
     </div>
     <div id="slots"></div>
     <div id="variations"></div>
@@ -204,11 +206,11 @@
   <main>
     <nav id="banks">
       <div id="perfpanel" hidden></div>
-      <h2>Patches</h2><div id="banklist">lade…</div>
-      <h2 style="margin-top:.8rem">Performances</h2><div id="perflist">lade…</div>
+      <h2>Patches</h2><div id="banklist">loading…</div>
+      <h2 style="margin-top:.8rem">Performances</h2><div id="perflist">loading…</div>
     </nav>
     <section id="patch"></section>
-    <aside id="params"><h2>Modul</h2><div id="paramsbody" class="hint">Modul anklicken</div></aside>
+    <aside id="params"><h2>Module</h2><div id="paramsbody" class="hint">Click a module</div></aside>
   </main>
 </body>
 </html>
