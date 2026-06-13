@@ -29,19 +29,16 @@ public final class Main {
         g2.onEvent(event -> broadcast(event));
 
         Javalin app = Javalin.create(cfg -> {
-            // Frontend-Build (frontend/dist) wird als Root serviert
-            cfg.staticFiles.add("/public", Location.CLASSPATH);
-        });
-
-        // index.html darf NIE gecacht werden: nach einem Redeploy ändert sich der
-        // (gehashte) Bundle-Dateiname; eine gecachte index.html würde sonst auf das
-        // alte, gelöschte Bundle zeigen → 503 → leere Seite. Die gehashten Assets
-        // unter /assets/ bleiben cachebar (ihr Name ändert sich bei Änderungen).
-        app.after(ctx -> {
-            String p = ctx.path();
-            if (p.equals("/") || p.endsWith(".html")) {
-                ctx.header("Cache-Control", "no-store, must-revalidate");
-            }
+            // Frontend-Build (frontend/dist) wird als Root serviert.
+            // Cache-Control: no-store auf ALLE statischen Dateien — sonst behält der
+            // Browser nach einem Redeploy die alte index.html und lädt das dort
+            // referenzierte, inzwischen gelöschte (gehashte) Bundle → 503 → leere
+            // Seite. Die App ist klein und wird im LAN serviert, daher unkritisch.
+            cfg.staticFiles.add(sf -> {
+                sf.directory = "/public";
+                sf.location = Location.CLASSPATH;
+                sf.headers = Map.of("Cache-Control", "no-store");
+            });
         });
 
         // --- REST ---
